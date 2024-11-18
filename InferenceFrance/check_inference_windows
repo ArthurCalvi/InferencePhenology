@@ -1,0 +1,274 @@
+import sys
+import os
+import numpy as np
+import rasterio
+import matplotlib.pyplot as plt
+from datetime import datetime
+from pathlib import Path
+from tqdm import tqdm
+from concurrent.futures import ProcessPoolExecutor, as_completed
+import logging
+import pandas as pd
+from joblib import load
+
+# Add the parent directory to Python path to import utils
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.append(PROJECT_ROOT)
+
+from src.utils import (to_reflectance, compute_indices, get_paired_files, 
+                      fit_periodic_function_with_harmonics_robust, compute_qa_weights, get_aspect, calculate_optimal_windows)
+
+# Imports and function process_single_window defined above...
+def process_single_window(base_dir, window, mosaic_paths, flg_paths, dates, model, num_harmonics=2, max_iter=1):
+    """Process a single window with full checks and return probability map"""
+    # Store temporal data
+    all_indices = []
+    weights = []
+    
+    # Process each date
+    for mosaic_path, flg_path in zip(mosaic_paths, flg_paths):
+        with rasterio.open(mosaic_path) as src:
+            # Read and process data
+            data = src.read([1,2,3,4,9,10], window=window)
+            nodata = src.profile.get('nodata', np.nan)
+            reflectance = to_reflectance(data, nodata=nodata)
+            
+            # Compute indices
+            ndvi, evi, nbr, crswir = compute_indices(*reflectance)
+            indices_data = {
+                'ndvi': ndvi, 'evi': evi, 'nbr': nbr, 'crswir': crswir
+            }
+            all_indices.append(indices_data)
+    
+        # Handle FLG (use ones if not available)
+        if flg_path != 'None':
+            with rasterio.open(flg_path) as src:
+                flg = src.read(1, window=window)
+                weight = compute_qa_weights(flg)
+        else:
+            weight = np.ones((window.height, window.width), dtype=np.float32)
+        weights.append(weight)
+    
+    weights = np.array(weights)
+    
+    # Compute features
+    features = {}
+    for index_name in ['ndvi', 'evi', 'nbr', 'crswir']:
+        index_data = np.stack([date_data[index_name] for date_data in all_indices])
+        result = fit_periodic_function_with_harmonics_robust(
+            index_data, weights, dates,
+            num_harmonics=num_harmonics,
+            max_iter=max_iter,
+            verbose=0
+        )
+        features[index_name] = result
+    
+    # Prepare features for model
+    feature_data = {}
+    for index_name, result in features.items():
+        # Store amplitudes
+        for i in range(num_harmonics):
+            feature_name = f'amplitude_{index_name}_h{i+1}'
+            feature_data[feature_name] = result[i].reshape(-1)
+        
+        # Store phases as cosine
+        for i in range(num_harmonics):
+            cos_name = f'cos_phase_{index_name}_h{i+1}'
+            phase = result[num_harmonics + i]
+            feature_data[cos_name] = np.cos(phase).reshape(-1)
+        
+        # Store offset
+        feature_data[f'offset_{index_name}'] = result[-1].reshape(-1)
+    
+    # Add DEM data
+    dem_path = os.path.join(base_dir, 'dem.tif')
+    with rasterio.open(dem_path) as src:
+        dem = src.read(1, window=window)
+    feature_data['elevation'] = dem.reshape(-1)
+    
+    # Get predictions
+    required_features = [
+        'amplitude_evi_h1', 'amplitude_nbr_h1', 'amplitude_ndvi_h1',
+        'cos_phase_crswir_h1', 'cos_phase_nbr_h1', 'cos_phase_ndvi_h1',
+        'offset_crswir', 'offset_evi', 'offset_nbr', 'elevation'
+    ]
+    
+    df = pd.DataFrame(feature_data)
+    df = df[required_features]
+    df = df.fillna(0)
+    
+    probabilities = model.predict_proba(df)
+    prob_map = probabilities[:, 1].reshape(window.height, window.width)
+    
+    return prob_map
+
+def setup_logger(name='phenology_processing'):
+    """Configure and return a logger"""
+    logger = logging.getLogger(name)
+    logger.setLevel(logging.INFO)
+    
+    formatter = logging.Formatter('%(message)s')
+    
+    if not logger.handlers:
+        # Console handler
+        console_handler = logging.StreamHandler()
+        console_handler.setFormatter(formatter)
+        logger.addHandler(console_handler)
+        
+        # File handler
+        file_handler = logging.FileHandler(f'{name}.log')
+        file_handler.setFormatter(formatter)
+        logger.addHandler(file_handler)
+    
+    return logger
+
+def plot_full_phenology_map(output_path: str, dem_path: str = None):
+    """Plot the full phenology map with terrain shading if DEM is available."""
+    with rasterio.open(output_path) as src:
+        prediction = src.read(1)
+        prediction = prediction.astype(float) / 255.0  # Convert to [0,1]
+        
+        # Create figure
+        fig, ax = plt.subplots(figsize=(15, 15))
+        
+        # Create terrain shading if DEM is available
+        if dem_path and os.path.exists(dem_path):
+            with rasterio.open(dem_path) as dem_src:
+                dem = dem_src.read(1)
+                aspect = get_aspect(dem, sigma=3)
+                
+                # Create hillshade
+                aspect_rad = np.radians(aspect)
+                azimuth = 5 * np.pi / 4
+                altitude = np.pi / 4
+                shading = np.cos(aspect_rad - azimuth) * np.sin(altitude)
+                shading = (shading + 1) / 2
+                shading = 0.3 + 0.7 * shading
+        else:
+            shading = None
+        
+        # Create custom colormap
+        colors_probability = [
+            (0.8, 0.4, 0.2),  # Brown-orange (deciduous)
+            (0.6, 0.5, 0.2),  # Brown-yellow transition
+            (0.4, 0.6, 0.2),  # Yellow-green transition
+            (0.1, 0.6, 0.1)   # Green (evergreen)
+        ]
+        import matplotlib.colors
+        cmap_probability = matplotlib.colors.LinearSegmentedColormap.from_list(
+            'deciduous_evergreen', colors_probability
+        )
+        
+        # Plot prediction
+        masked_prediction = np.ma.masked_array(prediction, mask=prediction == 1.0)  # Mask nodata (255 -> 1.0)
+        im = ax.imshow(masked_prediction, cmap=cmap_probability, vmin=0, vmax=1)
+        
+        # Add terrain shading if available
+        if shading is not None:
+            ax.imshow(shading, cmap='gray', alpha=0.1)
+        
+        # Add colorbar
+        cbar = plt.colorbar(im, ax=ax)
+        cbar.set_label('Probability of Evergreen Forest', rotation=270, labelpad=25)
+        cbar.set_ticks([0.1, 0.9])
+        cbar.set_ticklabels(['Deciduous', 'Evergreen'])
+        
+        # Remove axes
+        ax.set_axis_off()
+        
+        plt.tight_layout()
+        plt.show()
+        
+        # Print statistics
+        print("\nPhenology Map Statistics:")
+        valid_pred = masked_prediction[~masked_prediction.mask]
+        print(f"Valid pixels: {len(valid_pred)}")
+        print(f"Range: [{np.min(valid_pred):.4f}, {np.max(valid_pred):.4f}]")
+        print(f"Mean: {np.mean(valid_pred):.4f}")
+        print(f"Std: {np.std(valid_pred):.4f}")
+
+def main():
+    """Main function to process the entire tile."""
+    logger = setup_logger()
+    logger.info("\n=== Starting Phenology Processing ===")
+    
+    # Configuration
+    base_dir = "/Users/arthurcalvi/Repo/InferencePhenology/geefetch_test"
+    output_dir = "/Users/arthurcalvi/Repo/InferencePhenology/geefetch_test"
+    window_size = 1024
+    num_harmonics = 2
+    max_iter = 1
+    
+    # Load model
+    model_path = os.path.join(PROJECT_ROOT, 'model', 
+                          'best_model_with_bdforet_no_resampled_weights_h2_y1_iter10_scaled01_featuresfromRFECV_nf10_f1_0.9601.pkl')
+    model = load(model_path)
+    logger.info("Model loaded successfully")
+    
+    # Get files and dates
+    mosaic_paths, flg_paths = get_paired_files(base_dir)
+    if len(flg_paths) == 0:
+        logger.info("No FLG files found, using all ones as weights")
+        flg_paths = ['None'] * len(mosaic_paths)
+    
+    dates = [datetime.strptime(os.path.basename(p).split('.tif')[0].split('_')[1], '%Y%m')
+             for p in mosaic_paths]
+    
+    logger.info(f"Found {len(mosaic_paths)} dates from "
+                f"{dates[0].strftime('%Y-%m')} to {dates[-1].strftime('%Y-%m')}")
+    
+    # Calculate windows
+    windows = calculate_optimal_windows(mosaic_paths[0], window_size)
+    logger.info(f"Created {len(windows)} windows for processing")
+    
+    # Setup output
+    os.makedirs(output_dir, exist_ok=True)
+    output_path = os.path.join(output_dir, 'phenology_map.tif')
+    
+    # Get reference profile
+    with rasterio.open(mosaic_paths[0]) as src:
+        profile = src.profile.copy()
+    profile.update(dtype='uint8', count=1, compress='lzw', nodata=255)
+    
+    # Process all windows in parallel
+    max_workers = min(os.cpu_count(), 4)  # Limit number of workers
+    logger.info(f"Using {max_workers} workers for parallel processing")
+    
+    with rasterio.open(output_path, 'w', **profile) as dst:
+        with ProcessPoolExecutor(max_workers=max_workers) as executor:
+            future_to_window = {}
+            
+            # Submit all windows for processing
+            for window in windows:
+                future = executor.submit(
+                    process_single_window,
+                    base_dir, window, mosaic_paths, flg_paths, dates, model,
+                    num_harmonics, max_iter
+                )
+                future_to_window[future] = window
+            
+            # Process results as they complete
+            for future in tqdm(as_completed(future_to_window), 
+                             total=len(windows), 
+                             desc="Processing windows"):
+                window = future_to_window[future]
+                try:
+                    prob_map = future.result()
+                    if prob_map is not None:
+                        # Scale to uint8 and write
+                        result = (prob_map * 255).astype(np.uint8)
+                        dst.write(result, 1, window=window)
+                except Exception as e:
+                    logger.error(f"Error processing window {window}: {str(e)}")
+                    continue
+    
+    logger.info("Processing complete. Creating visualization...")
+    
+    # Plot full map
+    dem_path = os.path.join(base_dir, 'dem.tif')
+    plot_full_phenology_map(output_path, dem_path)
+    
+    logger.info("Visualization complete")
+
+if __name__ == "__main__":
+    main()

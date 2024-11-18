@@ -1,0 +1,36 @@
+def bbox_to_geojson(bbox_string):
+    # Parse the bbox string into coordinates
+    coords = [float(x) for x in bbox_string.split(',')]
+    min_lon, min_lat, max_lon, max_lat = coords
+    
+    # Create GeoJSON structure
+    geojson = {
+        "type": "Feature",
+        "properties": {},
+        "geometry": {
+            "type": "Polygon",
+            "coordinates": [[
+                [min_lon, min_lat],  # bottom left
+                [max_lon, min_lat],  # bottom right
+                [max_lon, max_lat],  # top right
+                [min_lon, max_lat],  # top left
+                [min_lon, min_lat]   # close the polygon by repeating first point
+            ]]
+        }
+    }
+    
+    return geojson
+
+# Your bbox
+bbox = "-5.273438,41.211722,9.755859,51.344339"
+
+# Convert to GeoJSON
+result = bbox_to_geojson(bbox)
+
+# Print the result (you might want to use json.dumps for pretty printing)
+import json
+print(json.dumps(result, indent=2))
+
+#write to file
+with open('bbox.geojson', 'w') as f:
+    json.dump(result, f)
