@@ -254,50 +254,6 @@ def get_paired_files(base_dir: str, suffix=None) -> tuple[list, list]:
             
     return mosaic_paths, flg_paths
 
-# def to_reflectance(data: np.ndarray, nodata: int = -10000) -> np.ndarray:
-#     """
-#     Convert int16 mosaic data to reflectance values.
-
-#     Args:
-#         data: Raw int16 data
-#         nodata: No data value (-10000 for these mosaics)
-
-#     Returns:
-#         float32 reflectance values
-#     """
-#     mask = data != nodata
-#     result = np.full_like(data, np.nan, dtype=np.float32)
-#     result[mask] = data[mask].astype(np.float32) / 10000.0
-#     return result
-
-# def compute_indices(b2: np.ndarray, b3: np.ndarray, b4: np.ndarray, b8: np.ndarray,
-#                     b11: np.ndarray, b12: np.ndarray) -> tuple:
-#     """
-#     Compute all required spectral indices from reflectance values.
-#     """
-#     crswir_coeff = (1610 - 842) / (2190 - 842)
-#     epsilon = 1e-8  # Small constant to prevent division by zero
-#     denominator = ((b12 - b8) * crswir_coeff + b8) + epsilon
-#     crswir = b11 / denominator
-
-#     ndvi = (b8 - b4) / (b8 + b4 + epsilon)
-#     evi = 2.5 * (b8 - b4) / (b8 + 6 * b4 - 7.5 * b2 + 1 + epsilon)
-#     nbr = (b8 - b12) / (b8 + b12 + epsilon)
-
-#     #check min max values and print it 
-#     print(f"NDVI min: {np.min(ndvi)}, max: {np.max(ndvi)}")
-#     print(f"EVI min: {np.min(evi)}, max: {np.max(evi)}")
-#     print(f"NBR min: {np.min(nbr)}, max: {np.max(nbr)}")
-#     print(f"CRSWIR min: {np.min(crswir)}, max: {np.max(crswir)}")
-
-#     # Replace NaNs and infinities with zero
-#     ndvi = np.nan_to_num(ndvi, nan=0.0, posinf=0.0, neginf=0.0)
-#     evi = np.nan_to_num(evi, nan=0.0, posinf=0.0, neginf=0.0)
-#     nbr = np.nan_to_num(nbr, nan=0.0, posinf=0.0, neginf=0.0)
-#     crswir = np.nan_to_num(crswir, nan=0.0, posinf=0.0, neginf=0.0)
-
-#     return ndvi, evi, nbr, crswir
-
 def to_reflectance(data: np.ndarray, nodata=None, logger=None) -> np.ndarray:
     """
     Convert mosaic data to reflectance values.
