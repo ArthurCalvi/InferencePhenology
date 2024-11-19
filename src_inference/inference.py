@@ -2,17 +2,23 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 from dataclasses import dataclass
-from typing import Optional, Tuple, List, Dict
+from typing import Optional, List, Dict, Any
 import logging
 from datetime import datetime
 from joblib import load
 from pathlib import Path
+import rasterio
+from rasterio.windows import Window
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from tqdm import tqdm
+import json
+import yaml
 
 # Add the parent directory to Python path to import the module
 import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from src_inference.utils import compute_indices, fit_periodic_function_with_harmonics_robust
+from .utils import compute_indices, fit_periodic_function_with_harmonics_robust, calculate_optimal_windows
 
 @dataclass
 class BandData:
@@ -70,6 +76,8 @@ class BandData:
             if not ((self.cloud_mask >= 0) & (self.cloud_mask <= 1)).all():
                 raise ValueError("Cloud mask values must be between 0 and 1")
 
+## WINDOW INFERENCE CLASS ## 
+
 class WindowInference:
     """Class to perform inference on a single window of time series data."""
     
@@ -83,7 +91,7 @@ class WindowInference:
     def __init__(
         self,
         band_data: BandData,
-        model_path: Optional[Path] = None,
+        model: Any = None,
         num_harmonics: int = 2,
         max_iter: int = 1,
         logger: Optional[logging.Logger] = None
@@ -104,12 +112,7 @@ class WindowInference:
         self.logger = logger or logging.getLogger(__name__)
         
         # Load model if path provided
-        self.model = None
-        if model_path is not None:
-            if not model_path.exists():
-                raise FileNotFoundError(f"Model file not found: {model_path}")
-            with open(model_path, 'rb') as f:
-                self.model = load(f)
+        self.model = model
                 
         self._validate_inputs()
         
@@ -261,3 +264,447 @@ class WindowInference:
         except Exception as e:
             self.logger.error(f"Inference failed: {str(e)}")
             raise
+
+## TILE INFERENCE CLASS ##
+
+class TileInference:
+    """Class to perform inference on a complete tile using windows."""
+    
+    def __init__(
+        self,
+        mosaic_paths: List[Path],
+        dates: List[datetime],
+        dem_path: Path,
+        output_dir: Path,
+        tile_id: str,
+        model_path: Path,
+        cloud_mask_paths: Optional[List[Path]] = None,
+        window_size: int = 1024,
+        num_harmonics: int = 2,
+        max_iter: int = 1,
+        max_workers: Optional[int] = None,
+        logger: Optional[logging.Logger] = None
+    ) -> None:
+        """
+        Initialize TileInference with explicit paths and dates.
+        
+        Args:
+            mosaic_paths: List of paths to Sentinel-2 mosaic files (bands order should be B02:1, B04:3, B08:4, B11:9, B12:10)
+            dates: List of dates corresponding to the mosaic files
+            dem_path: Path to the DEM file
+            output_dir: Directory to save outputs
+            tile_id: ID of the tile to process
+            model_path: Path to the model file
+            cloud_mask_paths: Optional list of paths to cloud mask files
+            window_size: Size of processing windows
+            num_harmonics: Number of harmonics for periodic function fitting
+            max_iter: Maximum iterations for harmonic fitting
+            max_workers: Maximum number of parallel workers
+            logger: Optional logger instance
+        """
+        # Validate inputs
+        if len(mosaic_paths) != len(dates):
+            raise ValueError("Number of mosaic paths must match number of dates")
+        if cloud_mask_paths and len(cloud_mask_paths) != len(dates):
+            raise ValueError("Number of cloud mask paths must match number of dates")
+            
+        self.mosaic_paths = [Path(p) for p in mosaic_paths]
+        self.dates = dates
+        self.dem_path = Path(dem_path)
+        self.output_dir = Path(output_dir)
+        self.tile_id = tile_id
+        self.model_path = Path(model_path)
+        self.cloud_mask_paths = [Path(p) for p in cloud_mask_paths] if cloud_mask_paths else None
+        self.window_size = window_size
+        self.num_harmonics = num_harmonics
+        self.max_iter = max_iter
+        self.weights_ = '0'
+        self.max_workers = min(os.cpu_count(), 4) if max_workers is None else max_workers
+        self.logger = logger or logging.getLogger(__name__)
+        
+        # Create output directory
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Load model
+        if os.path.exists(self.model_path):
+            self.model = load(self.model_path)
+            self.logger.info(f"Loaded model from {self.model_path}")
+        else:
+            raise FileNotFoundError(f"Model not found at {self.model_path}")
+            
+        self._validate_setup()
+        
+    def _validate_setup(self) -> None:
+        """Validate input data and paths."""
+        # Check if all mosaic files exist
+        missing_mosaics = [p for p in self.mosaic_paths if not p.exists()]
+        if missing_mosaics:
+            raise FileNotFoundError(f"Missing mosaic files: {missing_mosaics}")
+            
+        # Check if all cloud mask files exist (if provided)
+        if self.cloud_mask_paths:
+            missing_masks = [p for p in self.cloud_mask_paths if not p.exists()]
+            if missing_masks:
+                raise FileNotFoundError(f"Missing cloud mask files: {missing_masks}")
+                
+        # Check DEM file
+        if not self.dem_path.exists():
+            raise FileNotFoundError(f"DEM file not found: {self.dem_path}")
+            
+        # Get profile from first mosaic
+        with rasterio.open(self.mosaic_paths[0]) as src:
+            self.profile = src.profile.copy()
+            
+    def _process_window(self, window: Window) -> Optional[np.ndarray]:
+        """
+        Process a single window.
+        
+        Args:
+            window: Rasterio Window object defining the region to process
+        
+        Returns:
+            Probability map for the window or None if processing failed
+        """
+        try:
+            # Initialize band arrays
+            window_shape = (len(self.dates), window.height, window.width)
+            b2 = np.zeros(window_shape, dtype=np.float32)
+            b4 = np.zeros(window_shape, dtype=np.float32)
+            b8 = np.zeros(window_shape, dtype=np.float32)
+            b11 = np.zeros(window_shape, dtype=np.float32)
+            b12 = np.zeros(window_shape, dtype=np.float32)
+            
+            # Initialize cloud mask if provided
+            cloud_mask = None
+            if self.cloud_mask_paths:
+                cloud_mask = np.zeros(window_shape, dtype=np.float32)
+            
+            # Read time series data for window
+            for t, mosaic_path in enumerate(self.mosaic_paths):
+                with rasterio.open(mosaic_path) as src:
+                    # Read bands 1,3,4,9,10 (B2,B4,B8,B11,B12)
+                    data = src.read([1,3,4,9,10], window=window)
+                    b2[t] = data[0] / 10000.0
+                    b4[t] = data[1] / 10000.0
+                    b8[t] = data[2] / 10000.0
+                    b11[t] = data[3] / 10000.0
+                    b12[t] = data[4] / 10000.0
+                    
+                # Read cloud mask if provided
+                if self.cloud_mask_paths:
+                    with rasterio.open(self.cloud_mask_paths[t]) as src:
+                        cloud_mask[t] = src.read(1, window=window)
+                    self.weights_ = '1'
+                    
+            # Read DEM for window
+            with rasterio.open(self.dem_path) as src:
+                dem = src.read(1, window=window)
+                
+            # Create BandData object
+            band_data = BandData(
+                b2=b2, b4=b4, b8=b8, b11=b11, b12=b12,
+                dates=self.dates,
+                dem=dem,
+                cloud_mask=cloud_mask
+            )
+            
+            # Initialize and run window inference
+            window_inference = WindowInference(
+                band_data=band_data,
+                model=self.model,
+                num_harmonics=self.num_harmonics,
+                max_iter=self.max_iter
+            )
+            
+            return window_inference.run_inference()
+            
+        except Exception as e:
+            self.logger.error(f"Error processing window {window}: {str(e)}")
+            return None
+            
+    def run(self) -> None:
+        """Run inference on the complete tile using parallel processing."""
+        try:
+            self.logger.info(f"Processing tile {self.tile_id}")
+            
+            # Calculate optimal windows
+            windows = calculate_optimal_windows(
+                self.mosaic_paths[0],
+                window_size=self.window_size,
+                logger=self.logger
+            )
+            
+            # Prepare output file
+            output_path = self.output_dir / f"prob_map_tile_H{self.num_harmonics}_W{self.weights_}_IRLS{self.max_iter}_{self.tile_id}.tif"
+            profile = self.profile.copy()
+            profile.update({
+                'count': 1,
+                'dtype': 'uint8',
+                'nodata': 0
+            })
+            
+            # Process windows in parallel
+            self.logger.info(f"Using {self.max_workers} workers for parallel processing")
+            with rasterio.open(output_path, 'w', **profile) as dst:
+                with ProcessPoolExecutor(max_workers=self.max_workers) as executor:
+                    future_to_window = {}
+                    
+                    # Submit all windows for processing
+                    for window in windows:
+                        future = executor.submit(self._process_window, window)
+                        future_to_window[future] = window
+                        
+                    # Process results as they complete
+                    for future in tqdm(as_completed(future_to_window),
+                                   total=len(windows),
+                                   desc="Processing windows"):
+                        window = future_to_window[future]
+                        try:
+                            prob_map = future.result()
+                            if prob_map is not None:
+                                # Scale to uint8 and write
+                                result = (prob_map * 255).astype(np.uint8)
+                                dst.write(result, 1, window=window)
+                        except Exception as e:
+                            self.logger.error(f"Error processing window {window}: {str(e)}")
+                            continue
+                            
+            self.logger.info(f"Successfully processed tile {self.tile_id}")
+            
+        except Exception as e:
+            self.logger.error(f"Failed to process tile {self.tile_id}: {str(e)}")
+            raise
+            
+    def __str__(self) -> str:
+        """String representation of the TileInference instance."""
+        mask_status = "with" if self.cloud_mask_paths else "without"
+        return (f"TileInference(tile_id={self.tile_id}, "
+                f"dates={len(self.dates)} dates, "
+                f"{mask_status} cloud masks)")
+
+@dataclass
+class TileData:
+    """Data class to hold all paths and dates for a single tile."""
+    tile_id: str
+    mosaic_paths: List[Path]
+    dates: List[datetime]
+    dem_path: Path
+    cloud_mask_paths: Optional[List[Path]] = None
+
+class FolderInference:
+    """
+    Class to manage inference over multiple tiles using SLURM job arrays.
+    Supports flexible input structure and resuming interrupted processing.
+    """
+    
+    def __init__(
+        self,
+        tiles_data: List[TileData],
+        output_dir: Path,
+        model_path: Path,
+        config_path: Optional[Path] = None,
+        window_size: int = 1024,
+        workers_per_tile: int = 4,
+        num_harmonics: int = 2,
+        max_iter: int = 1,
+        logger: Optional[logging.Logger] = None
+    ) -> None:
+        """
+        Initialize FolderInference with explicit tile data.
+        
+        Args:
+            tiles_data: List of TileData objects containing paths and dates
+            output_dir: Directory to save outputs
+            model_path: Path to the model file
+            config_path: Optional path to YAML config file for overriding defaults
+            window_size: Size of processing windows for TileInference
+            workers_per_tile: Number of CPU cores to use per tile
+            num_harmonics: Number of harmonics for periodic function fitting
+            max_iter: Maximum iterations for harmonic fitting
+            logger: Optional logger instance
+        """
+        self.tiles_data = tiles_data
+        self.output_dir = Path(output_dir)
+        self.model_path = Path(model_path)
+        self.logger = logger or logging.getLogger(__name__)
+        
+        # Load configuration if provided
+        if config_path:
+            self._load_config(config_path)
+        else:
+            self.window_size = window_size
+            self.workers_per_tile = workers_per_tile
+            self.num_harmonics = num_harmonics
+            self.max_iter = max_iter
+        
+        # Create necessary directories
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        self.config_dir = self.output_dir / "configs"
+        self.config_dir.mkdir(exist_ok=True)
+        
+        # State tracking file
+        self.state_file = self.output_dir / "processing_state.json"
+        
+        # Initialize
+        self._validate_setup()
+        self.tiles_info = self._prepare_tiles_info()
+        
+    def _load_config(self, config_path: Path) -> None:
+        """Load configuration from YAML file."""
+        with open(config_path) as f:
+            config = yaml.safe_load(f)
+            
+        self.window_size = config.get('window_size', 1024)
+        self.workers_per_tile = config.get('workers_per_tile', 4)
+        self.num_harmonics = config.get('num_harmonics', 2)
+        self.max_iter = config.get('max_iter', 1)
+        
+    def _validate_setup(self) -> None:
+        """Validate input data and paths."""
+        if not self.tiles_data:
+            raise ValueError("No tile data provided")
+            
+        if not self.model_path.exists():
+            raise FileNotFoundError(f"Model file not found: {self.model_path}")
+        
+        for tile_data in self.tiles_data:
+            if len(tile_data.mosaic_paths) != len(tile_data.dates):
+                raise ValueError(f"Mismatch between mosaic paths and dates for tile {tile_data.tile_id}")
+            if tile_data.cloud_mask_paths and len(tile_data.cloud_mask_paths) != len(tile_data.dates):
+                raise ValueError(f"Mismatch between cloud mask paths and dates for tile {tile_data.tile_id}")
+            
+    def _prepare_tiles_info(self) -> List[Dict]:
+        """Prepare information for each tile to be processed."""
+        tiles_info = []
+        
+        for tile_data in self.tiles_data:
+            tiles_info.append({
+                'tile_id': tile_data.tile_id,
+                'mosaic_paths': [str(p) for p in tile_data.mosaic_paths],
+                'dates': [d.strftime("%Y-%m-%d") for d in tile_data.dates],
+                'dem_path': str(tile_data.dem_path),
+                'cloud_mask_paths': [str(p) for p in tile_data.cloud_mask_paths] if tile_data.cloud_mask_paths else None,
+                'config': {
+                    'window_size': self.window_size,
+                    'workers_per_tile': self.workers_per_tile,
+                    'num_harmonics': self.num_harmonics,
+                    'max_iter': self.max_iter
+                }
+            })
+                    
+        return tiles_info
+        
+    def save_configs(self) -> None:
+        """Save configuration files for each tile."""
+        # Save tile configurations
+        for i, tile_info in enumerate(self.tiles_info):
+            config_file = self.config_dir / f"tile_config_{i:03d}.json"
+            with open(config_file, 'w') as f:
+                json.dump(tile_info, f, indent=2)
+                
+        # Save metadata
+        metadata = {
+            'num_tiles': len(self.tiles_info),
+            'model_path': str(self.model_path),
+            'output_dir': str(self.output_dir)
+        }
+        with open(self.config_dir / "metadata.json", 'w') as f:
+            json.dump(metadata, f, indent=2)
+            
+        # Initialize processing state if it doesn't exist
+        if not self.state_file.exists():
+            self._save_processing_state(set())
+            
+    def _load_processing_state(self) -> set:
+        """Load the set of completed tile indices."""
+        if self.state_file.exists():
+            with open(self.state_file) as f:
+                state = json.load(f)
+            return set(state['completed_tiles'])
+        return set()
+        
+    def _save_processing_state(self, completed_tiles: set) -> None:
+        """Save the set of completed tile indices."""
+        with open(self.state_file, 'w') as f:
+            json.dump({
+                'completed_tiles': sorted(list(completed_tiles)),
+                'last_update': datetime.now().isoformat()
+            }, f, indent=2)
+            
+    def process_single_tile(self, tile_idx: int) -> None:
+        """
+        Process a single tile based on its index.
+        Checks if tile has already been processed before starting.
+        
+        Args:
+            tile_idx: Index of the tile to process
+        """
+        if tile_idx >= len(self.tiles_info):
+            raise ValueError(f"Invalid tile index: {tile_idx}")
+            
+        # Check if tile has already been processed
+        completed_tiles = self._load_processing_state()
+        if tile_idx in completed_tiles:
+            self.logger.info(f"Tile {tile_idx} already processed, skipping")
+            return
+            
+        # Process tile
+        try:
+            tile_info = self.tiles_info[tile_idx]
+            
+            # Convert string dates back to datetime
+            dates = [datetime.strptime(d, "%Y-%m-%d") for d in tile_info['dates']]
+            
+            # Initialize and run TileInference
+            tile_inference = TileInference(
+                mosaic_paths=[Path(p) for p in tile_info['mosaic_paths']],
+                dates=dates,
+                dem_path=Path(tile_info['dem_path']),
+                output_dir=self.output_dir,
+                tile_id=tile_info['tile_id'],
+                model_path=self.model_path,
+                cloud_mask_paths=[Path(p) for p in tile_info['cloud_mask_paths']] if tile_info['cloud_mask_paths'] else None,
+                window_size=tile_info['config']['window_size'],
+                num_harmonics=tile_info['config']['num_harmonics'],
+                max_iter=tile_info['config']['max_iter'],
+                max_workers=tile_info['config']['workers_per_tile'],
+                logger=self.logger
+            )
+            
+            tile_inference.run()
+            
+            # Update processing state
+            completed_tiles.add(tile_idx)
+            self._save_processing_state(completed_tiles)
+            
+        except Exception as e:
+            self.logger.error(f"Error processing tile {tile_idx}: {str(e)}")
+            raise
+        
+    def get_remaining_tiles(self) -> List[int]:
+        """Get list of tile indices that still need to be processed."""
+        completed_tiles = self._load_processing_state()
+        all_tiles = set(range(len(self.tiles_info)))
+        return sorted(list(all_tiles - completed_tiles))
+        
+    def get_num_tiles(self) -> int:
+        """Get total number of tiles to process."""
+        return len(self.tiles_info)
+        
+    def get_progress(self) -> Dict:
+        """Get processing progress information."""
+        completed_tiles = self._load_processing_state()
+        total_tiles = self.get_num_tiles()
+        return {
+            'total_tiles': total_tiles,
+            'completed_tiles': len(completed_tiles),
+            'remaining_tiles': total_tiles - len(completed_tiles),
+            'progress_percentage': (len(completed_tiles) / total_tiles) * 100 if total_tiles > 0 else 0
+        }
+        
+    def __str__(self) -> str:
+        """String representation of the FolderInference instance."""
+        progress = self.get_progress()
+        return (f"FolderInference(tiles={progress['total_tiles']}, "
+                f"completed={progress['completed_tiles']}, "
+                f"progress={progress['progress_percentage']:.1f}%)")

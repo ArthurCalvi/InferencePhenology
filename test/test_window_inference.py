@@ -10,6 +10,7 @@ from pathlib import Path
 import sys
 import re
 from typing import List, Tuple
+from joblib import load 
 
 # Add the parent directory to Python path to import the module
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -126,6 +127,12 @@ def main():
     mosaics_dir = data_dir / "mosaics"
     model_path = project_dir / "model" / "best_model_with_bdforet_no_resampled_weights_h2_y1_iter10_scaled01_featuresfromRFECV_nf10_f1_0.9601.pkl"
     
+    if os.path.exists(model_path):
+        model = load(model_path)
+        logger.info(f"Loaded model from {model_path}")
+    else:
+        raise FileNotFoundError(f"Model not found at {model_path}")
+    
     # Test parameters
     years = ["2021", "2022"]  # Use two years of data
     tile_id = "EPSG2154_750000_6700000"
@@ -164,7 +171,7 @@ def main():
         # Initialize WindowInference
         window_inference = WindowInference(
             band_data=band_data,
-            model_path=model_path,
+            model=model,
             num_harmonics=2,
             max_iter=1,
             logger=logger

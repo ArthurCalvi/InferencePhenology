@@ -5,7 +5,7 @@ import warnings
 from rasterio.warp import transform_bounds, reproject
 import numpy as np
 
-def generate_dem_from_mosaic(mosaics_dir):
+def generate_dem_from_mosaic(reference_dir, output_dir):
     """
     Generate a DEM file based on the extent of the first mosaic tile found.
     
@@ -19,17 +19,12 @@ def generate_dem_from_mosaic(mosaics_dir):
     
     # Get the first .tif file from the mosaics directory
     try:
-        tif_files = [f for f in os.listdir(mosaics_dir) if f.endswith('.tif')]
-        if not tif_files:
-            print("No TIF files found in the mosaics directory.")
-            return False
-            
         # Use the first TIF file as reference
-        reference_tif = os.path.join(mosaics_dir, tif_files[0])
-        print(f"Using reference file: {reference_tif}")
+        print(f"Using reference file: {reference_dir}")
+        tile_id = os.path.basename(reference_dir).split('s2')[1].split('.tif')[0][1:]
         
         # Open the reference raster
-        with rasterio.open(reference_tif) as raster:
+        with rasterio.open(reference_dir) as raster:
             profile = raster.profile
             target_transform = raster.transform
             
@@ -66,7 +61,7 @@ def generate_dem_from_mosaic(mosaics_dir):
             })
             
             # Write the DEM file
-            dem_path = os.path.join(os.path.dirname(mosaics_dir), 'dem.tif')
+            dem_path = os.path.join(output_dir, f'dem_{tile_id}.tif')
             with rasterio.open(dem_path, 'w', **profile) as dest:
                 dest.write(dem.astype('float32'))
             
@@ -79,12 +74,13 @@ def generate_dem_from_mosaic(mosaics_dir):
 
 if __name__ == "__main__":
     # Assuming the script is run from the same directory as the mosaics folder
-    mosaics_dir = "/Users/arthurcalvi/Repo/InferencePhenology/geefetch_test"
+    reference_dir = "/Users/arthurcalvi/Repo/InferencePhenology/data/mosaics/2021/01-01_plus_minus_30_days/s2/s2_EPSG2154_750000_6650000.tif"
+    output_dir = "/Users/arthurcalvi/Repo/InferencePhenology/data/dem"
     
-    if not os.path.exists(mosaics_dir):
-        print(f"Error: Directory '{mosaics_dir}' not found.")
+    if not os.path.exists(reference_dir):
+        print(f"Error: Directory '{reference_dir}' not found.")
     else:
-        success = generate_dem_from_mosaic(mosaics_dir)
+        success = generate_dem_from_mosaic(reference_dir, output_dir)
         if success:
             print("DEM generation completed successfully.")
         else:
