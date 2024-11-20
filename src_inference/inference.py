@@ -498,6 +498,70 @@ class FolderInference:
     Class to manage inference over multiple tiles using SLURM job arrays.
     Supports flexible input structure and resuming interrupted processing.
     """
+    @classmethod
+    def from_config(
+        cls,
+        config_dir: Path,
+        logger: Optional[logging.Logger] = None
+    ) -> 'FolderInference':
+        """
+        Create FolderInference instance from saved configuration files.
+        
+        Args:
+            config_dir: Directory containing configuration files
+            logger: Optional logger for tracking progress
+            
+        Returns:
+            FolderInference instance initialized from configs
+            
+        Raises:
+            FileNotFoundError: If required config files are missing 
+            ValueError: If config data is invalid
+        """
+        config_dir = Path(config_dir)
+        if not config_dir.exists():
+            raise FileNotFoundError(f"Config directory not found: {config_dir}")
+            
+        # Load metadata
+        metadata_file = config_dir / "metadata.json" 
+        if not metadata_file.exists():
+            raise FileNotFoundError(f"Metadata file not found: {metadata_file}")
+            
+        with open(metadata_file) as f:
+            metadata = json.load(f)
+            
+        # Load all tile configs
+        tiles_data = []
+        for i in range(metadata['num_tiles']):
+            config_file = config_dir / f"tile_config_{i:03d}.json"
+            if not config_file.exists():
+                raise FileNotFoundError(f"Missing tile config: {config_file}")
+                
+            with open(config_file) as f:
+                tile_config = json.load(f)
+                
+            # Convert strings back to Paths
+            tile_data = TileData(
+                tile_id=tile_config['tile_id'],
+                mosaic_paths=[Path(p) for p in tile_config['mosaic_paths']],
+                dates=[datetime.strptime(d, "%Y-%m-%d") for d in tile_config['dates']],
+                dem_path=Path(tile_config['dem_path']),
+                cloud_mask_paths=[Path(p) for p in tile_config['cloud_mask_paths']] 
+                    if tile_config.get('cloud_mask_paths') else None
+            )
+            tiles_data.append(tile_data)
+            
+        # Create instance
+        return cls(
+            tiles_data=tiles_data,
+            output_dir=Path(metadata['output_dir']),
+            model_path=Path(metadata['model_path']),
+            window_size=metadata.get('window_size', 1024),
+            workers_per_tile=metadata.get('workers_per_tile', 4),
+            num_harmonics=metadata.get('num_harmonics', 2),
+            max_iter=metadata.get('max_iter', 1),
+            logger=logger
+        )
     
     def __init__(
         self,
