@@ -9,11 +9,9 @@ import sys
 import re
 from typing import List
 import matplotlib.pyplot as plt
-import shutil
 
 # Add the parent directory to Python path to import the module
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
 from src_inference.inference import FolderInference, TileData
 from src_inference.plotting import plot_phenology_prediction
 from src_inference.utils import get_aspect
@@ -127,7 +125,10 @@ def main():
     # Setup paths
     current_dir = Path(__file__).parent
     project_dir = current_dir.parent
-    data_dir = Path("data")  # Update with actual path
+    data_dir = project_dir / "data"
+    #print absolute path
+    print(data_dir.absolute())
+
     model_path = project_dir / "model" / "best_model_with_bdforet_no_resampled_weights_h2_y1_iter10_scaled01_featuresfromRFECV_nf10_f1_0.9601.pkl"
     output_dir = current_dir / "test_outputs"
     

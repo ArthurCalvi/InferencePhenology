@@ -18,7 +18,7 @@ import yaml
 import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from .utils import compute_indices, fit_periodic_function_with_harmonics_robust, calculate_optimal_windows
+from src_inference.utils import compute_indices, fit_periodic_function_with_harmonics_robust, calculate_optimal_windows
 
 @dataclass
 class BandData:
@@ -437,10 +437,12 @@ class TileInference:
             # Prepare output file
             output_path = self.output_dir / f"prob_map_tile_H{self.num_harmonics}_W{self.weights_}_IRLS{self.max_iter}_{self.tile_id}.tif"
             profile = self.profile.copy()
+            #add compression
             profile.update({
                 'count': 1,
                 'dtype': 'uint8',
-                'nodata': 0
+                'nodata': 0, 
+                'compress': 'lzw'
             })
             
             # Process windows in parallel
