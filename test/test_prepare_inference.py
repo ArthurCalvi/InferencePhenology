@@ -65,7 +65,7 @@ def main():
             "--model-path", str(model_path),
             "--num-harmonics", "2",
             "--max-iter", "1",
-            "--workers-per-tile", "4",
+            "--workers-per-tile", "8",
             "--window-size", "1024",
             "--years", "2021", "2022"
         ]

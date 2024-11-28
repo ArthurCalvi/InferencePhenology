@@ -12,7 +12,7 @@ import argparse
 import multiprocessing
 from dataclasses import dataclass
 from tqdm import tqdm
-import multidem
+# import multidem
 
 @dataclass
 class DEMTileInfo:

@@ -135,7 +135,7 @@ def main():
     
     # Test parameters
     years = ["2021", "2022"]  # Use two years of data
-    tile_id = "EPSG2154_750000_6700000"
+    tile_id = "EPSG2154_450000_6800000"
     window_size = 1024
     x_start, y_start = 0, 0  # Starting from top-left corner
     

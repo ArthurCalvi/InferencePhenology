@@ -123,19 +123,68 @@ class WindowInference:
         if self.max_iter < 1:
             raise ValueError("max_iter must be positive")
             
+    # def _get_quality_weights(self) -> np.ndarray:
+    #     """
+    #     Get quality weights for feature computation.
+        
+    #     Returns:
+    #         Array of quality weights (1 for good quality, 0 for bad quality)
+    #     """
+    #     if self.band_data.cloud_mask is not None:
+    #         self.logger.info("Using provided cloud mask as quality weights")
+    #         return self.band_data.cloud_mask
+    #     else:
+    #         self.logger.info("No cloud mask provided, using default weights of 1.0")
+    #         return np.ones_like(self.band_data.b2)
     def _get_quality_weights(self) -> np.ndarray:
         """
         Get quality weights for feature computation.
+        NaN values in any band set the weight to 0.
         
         Returns:
-            Array of quality weights (1 for good quality, 0 for bad quality)
+            Array of quality weights (1 for good quality, 0 for bad quality or NaN)
         """
-        if self.band_data.cloud_mask is not None:
-            self.logger.info("Using provided cloud mask as quality weights")
-            return self.band_data.cloud_mask
-        else:
-            self.logger.info("No cloud mask provided, using default weights of 1.0")
-            return np.ones_like(self.band_data.b2)
+        try:
+            if self.logger:
+                self.logger.info("Computing quality weights with NaN masking")
+                
+            # Start with provided cloud mask if available
+            if self.band_data.cloud_mask is not None:
+                weights = self.band_data.cloud_mask
+                if self.logger:
+                    self.logger.debug("Using provided cloud mask as initial weights")
+            else:
+                weights = np.ones_like(self.band_data.b2)
+                if self.logger:
+                    self.logger.debug("No cloud mask provided, using default weights of 1.0")
+                    
+            # Create NaN mask for each band
+            nan_masks = [
+                np.isnan(band) for band in [
+                    self.band_data.b2,
+                    self.band_data.b4,
+                    self.band_data.b8,
+                    self.band_data.b11,
+                    self.band_data.b12
+                ]
+            ]
+            
+            # Combine NaN masks (if any band has NaN, weight should be 0)
+            combined_nan_mask = np.any(nan_masks, axis=0)
+            
+            # Update weights: multiply by (1 - NaN mask) to set weights to 0 where there are NaNs
+            weights = weights * (~combined_nan_mask)
+            
+            if self.logger:
+                self.logger.debug(f"NaN-masked pixels: {np.sum(combined_nan_mask)} out of {combined_nan_mask.size}")
+                self.logger.debug(f"Final zero weights: {np.sum(weights == 0)} out of {weights.size}")
+                
+            return weights
+                
+        except Exception as e:
+            if self.logger:
+                self.logger.error(f"Failed to compute quality weights: {str(e)}")
+            raise
             
     def compute_indices(self) -> Dict[str, np.ndarray]:
         """

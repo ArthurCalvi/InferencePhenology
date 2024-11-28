@@ -1,0 +1,39 @@
+{
+  "tile_id": "EPSG2154_350000_6850000",
+  "mosaic_paths": [
+    "/lustre/fsn1/projects/rech/ego/uyr48jk/all_year_france/gpfsscratch/rech/ego/uof45xi/data/all_year/france/2021/01-01_plus_minus_30_days/s2/s2_EPSG2154_350000_6850000.tif",
+    "/lustre/fsn1/projects/rech/ego/uyr48jk/all_year_france/gpfsscratch/rech/ego/uof45xi/data/all_year/france/2021/03-01_plus_minus_30_days/s2/s2_EPSG2154_350000_6850000.tif",
+    "/lustre/fsn1/projects/rech/ego/uyr48jk/all_year_france/gpfsscratch/rech/ego/uof45xi/data/all_year/france/2021/05-01_plus_minus_30_days/s2/s2_EPSG2154_350000_6850000.tif",
+    "/lustre/fsn1/projects/rech/ego/uyr48jk/all_year_france/gpfsscratch/rech/ego/uof45xi/data/all_year/france/2021/07-01_plus_minus_30_days/s2/s2_EPSG2154_350000_6850000.tif",
+    "/lustre/fsn1/projects/rech/ego/uyr48jk/all_year_france/gpfsscratch/rech/ego/uof45xi/data/all_year/france/2021/09-01_plus_minus_30_days/s2/s2_EPSG2154_350000_6850000.tif",
+    "/lustre/fsn1/projects/rech/ego/uyr48jk/all_year_france/gpfsscratch/rech/ego/uof45xi/data/all_year/france/2021/11-01_plus_minus_30_days/s2/s2_EPSG2154_350000_6850000.tif",
+    "/lustre/fsn1/projects/rech/ego/uyr48jk/all_year_france/gpfsscratch/rech/ego/uof45xi/data/all_year/france/2022/01-01_plus_minus_30_days/s2/s2_EPSG2154_350000_6850000.tif",
+    "/lustre/fsn1/projects/rech/ego/uyr48jk/all_year_france/gpfsscratch/rech/ego/uof45xi/data/all_year/france/2022/03-01_plus_minus_30_days/s2/s2_EPSG2154_350000_6850000.tif",
+    "/lustre/fsn1/projects/rech/ego/uyr48jk/all_year_france/gpfsscratch/rech/ego/uof45xi/data/all_year/france/2022/05-01_plus_minus_30_days/s2/s2_EPSG2154_350000_6850000.tif",
+    "/lustre/fsn1/projects/rech/ego/uyr48jk/all_year_france/gpfsscratch/rech/ego/uof45xi/data/all_year/france/2022/07-01_plus_minus_30_days/s2/s2_EPSG2154_350000_6850000.tif",
+    "/lustre/fsn1/projects/rech/ego/uyr48jk/all_year_france/gpfsscratch/rech/ego/uof45xi/data/all_year/france/2022/09-01_plus_minus_30_days/s2/s2_EPSG2154_350000_6850000.tif",
+    "/lustre/fsn1/projects/rech/ego/uyr48jk/all_year_france/gpfsscratch/rech/ego/uof45xi/data/all_year/france/2022/11-01_plus_minus_30_days/s2/s2_EPSG2154_350000_6850000.tif"
+  ],
+  "dates": [
+    "2021-01-01",
+    "2021-03-01",
+    "2021-05-01",
+    "2021-07-01",
+    "2021-09-01",
+    "2021-11-01",
+    "2022-01-01",
+    "2022-03-01",
+    "2022-05-01",
+    "2022-07-01",
+    "2022-09-01",
+    "2022-11-01"
+  ],
+  "dem_path": "/lustre/fsn1/projects/rech/ego/uyr48jk/all_year_france/gpfsscratch/rech/ego/uof45xi/data/all_year/france/dem/dem/dem_EPSG2154_350000_6850000.tif",
+  "cloud_mask_paths": null,
+  "config": {
+    "window_size": 1024,
+    "workers_per_tile": 4,
+    "num_harmonics": 2,
+    "max_iter": 1
+  }
+}

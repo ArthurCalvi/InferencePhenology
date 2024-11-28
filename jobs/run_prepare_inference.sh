@@ -18,12 +18,12 @@ module load pytorch-gpu/py3/2.2.0
 
 python $WORK/InferencePhenology/src_inference/prepare_inference.py \
     --mosaic-dir /lustre/fsn1/projects/rech/ego/uyr48jk/all_year_france/gpfsscratch/rech/ego/uof45xi/data/all_year/france \
-    --dem-dir /lustre/fsn1/projects/rech/ego/uyr48jk/all_year_france/gpfsscratch/rech/ego/uof45xi/data/all_year/france/dem \
+    --dem-dir /lustre/fsn1/projects/rech/ego/uyr48jk/all_year_france/gpfsscratch/rech/ego/uof45xi/data/all_year/france/dem/dem \
     --output-dir /lustre/fswork/projects/rech/ego/uyr48jk/InferencePhenology \
     --model-path /lustre/fswork/projects/rech/ego/uyr48jk/InferencePhenology/model/best_model_with_bdforet_no_resampled_weights_h2_y1_iter10_scaled01_featuresfromRFECV_nf10_f1_0.9601.pkl \
     --years 2021 2022 \
-    --max-concurrent-jobs 100 \
+    --max-concurrent-jobs 70 \
     --num-harmonics 2 \
     --max-iter 1 \
     --window-size 1024 \
-    --workers-per-tile 4
+    --workers-per-tile 8

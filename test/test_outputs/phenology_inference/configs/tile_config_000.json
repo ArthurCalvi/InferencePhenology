@@ -1,18 +1,18 @@
 {
-  "tile_id": "EPSG2154_750000_6650000",
+  "tile_id": "EPSG2154_450000_6800000",
   "mosaic_paths": [
-    "/Users/arthurcalvi/Repo/InferencePhenology/data/mosaics/2021/01-01_plus_minus_30_days/s2/s2_EPSG2154_750000_6650000.tif",
-    "/Users/arthurcalvi/Repo/InferencePhenology/data/mosaics/2021/03-01_plus_minus_30_days/s2/s2_EPSG2154_750000_6650000.tif",
-    "/Users/arthurcalvi/Repo/InferencePhenology/data/mosaics/2021/05-01_plus_minus_30_days/s2/s2_EPSG2154_750000_6650000.tif",
-    "/Users/arthurcalvi/Repo/InferencePhenology/data/mosaics/2021/07-01_plus_minus_30_days/s2/s2_EPSG2154_750000_6650000.tif",
-    "/Users/arthurcalvi/Repo/InferencePhenology/data/mosaics/2021/09-01_plus_minus_30_days/s2/s2_EPSG2154_750000_6650000.tif",
-    "/Users/arthurcalvi/Repo/InferencePhenology/data/mosaics/2021/11-01_plus_minus_30_days/s2/s2_EPSG2154_750000_6650000.tif",
-    "/Users/arthurcalvi/Repo/InferencePhenology/data/mosaics/2022/01-01_plus_minus_30_days/s2/s2_EPSG2154_750000_6650000.tif",
-    "/Users/arthurcalvi/Repo/InferencePhenology/data/mosaics/2022/03-01_plus_minus_30_days/s2/s2_EPSG2154_750000_6650000.tif",
-    "/Users/arthurcalvi/Repo/InferencePhenology/data/mosaics/2022/05-01_plus_minus_30_days/s2/s2_EPSG2154_750000_6650000.tif",
-    "/Users/arthurcalvi/Repo/InferencePhenology/data/mosaics/2022/07-01_plus_minus_30_days/s2/s2_EPSG2154_750000_6650000.tif",
-    "/Users/arthurcalvi/Repo/InferencePhenology/data/mosaics/2022/09-01_plus_minus_30_days/s2/s2_EPSG2154_750000_6650000.tif",
-    "/Users/arthurcalvi/Repo/InferencePhenology/data/mosaics/2022/11-01_plus_minus_30_days/s2/s2_EPSG2154_750000_6650000.tif"
+    "/Users/arthurcalvi/Repo/InferencePhenology/data/mosaics/2021/01-01_plus_minus_30_days/s2/s2_EPSG2154_450000_6800000.tif",
+    "/Users/arthurcalvi/Repo/InferencePhenology/data/mosaics/2021/03-01_plus_minus_30_days/s2/s2_EPSG2154_450000_6800000.tif",
+    "/Users/arthurcalvi/Repo/InferencePhenology/data/mosaics/2021/05-01_plus_minus_30_days/s2/s2_EPSG2154_450000_6800000.tif",
+    "/Users/arthurcalvi/Repo/InferencePhenology/data/mosaics/2021/07-01_plus_minus_30_days/s2/s2_EPSG2154_450000_6800000.tif",
+    "/Users/arthurcalvi/Repo/InferencePhenology/data/mosaics/2021/09-01_plus_minus_30_days/s2/s2_EPSG2154_450000_6800000.tif",
+    "/Users/arthurcalvi/Repo/InferencePhenology/data/mosaics/2021/11-01_plus_minus_30_days/s2/s2_EPSG2154_450000_6800000.tif",
+    "/Users/arthurcalvi/Repo/InferencePhenology/data/mosaics/2022/01-01_plus_minus_30_days/s2/s2_EPSG2154_450000_6800000.tif",
+    "/Users/arthurcalvi/Repo/InferencePhenology/data/mosaics/2022/03-01_plus_minus_30_days/s2/s2_EPSG2154_450000_6800000.tif",
+    "/Users/arthurcalvi/Repo/InferencePhenology/data/mosaics/2022/05-01_plus_minus_30_days/s2/s2_EPSG2154_450000_6800000.tif",
+    "/Users/arthurcalvi/Repo/InferencePhenology/data/mosaics/2022/07-01_plus_minus_30_days/s2/s2_EPSG2154_450000_6800000.tif",
+    "/Users/arthurcalvi/Repo/InferencePhenology/data/mosaics/2022/09-01_plus_minus_30_days/s2/s2_EPSG2154_450000_6800000.tif",
+    "/Users/arthurcalvi/Repo/InferencePhenology/data/mosaics/2022/11-01_plus_minus_30_days/s2/s2_EPSG2154_450000_6800000.tif"
   ],
   "dates": [
     "2021-01-01",
@@ -28,11 +28,11 @@
     "2022-09-01",
     "2022-11-01"
   ],
-  "dem_path": "/Users/arthurcalvi/Repo/InferencePhenology/data/dem/dem_EPSG2154_750000_6650000.tif",
+  "dem_path": "/Users/arthurcalvi/Repo/InferencePhenology/data/dem/dem_EPSG2154_450000_6800000.tif",
   "cloud_mask_paths": null,
   "config": {
     "window_size": 1024,
-    "workers_per_tile": 4,
+    "workers_per_tile": 8,
     "num_harmonics": 2,
     "max_iter": 1
   }

@@ -8,7 +8,7 @@ from skimage.morphology import dilation, disk
 from skimage.filters import rank
 from skimage.util import img_as_ubyte
 from typing import List, Tuple, Optional, Union, Callable
-import multidem
+# import multidem
 from rasterio.warp import transform_bounds, reproject
 import warnings
 from scipy.ndimage import gaussian_filter
@@ -103,6 +103,204 @@ def write_dem_features(
             logger.error(f"Failed to write DEM features: {str(e)}")
         return 0
 
+# def fit_periodic_function_with_harmonics_robust(
+#     time_series: np.ndarray,
+#     qa: np.ndarray,
+#     dates: List[datetime],
+#     num_harmonics: int = 3,
+#     max_iter: int = 10,
+#     tol: float = 5e-2,
+#     percentile: float = 75.0,
+#     min_param_threshold: float = 1e-5,
+#     callback: Optional[Callable[[int, float], None]] = None,
+#     logger: Optional[logging.Logger] = None, 
+#     debug: bool = False
+# ) -> Tuple[np.ndarray]:
+#     """
+#     Fit a robust periodic function with harmonics to time series data.
+    
+#     Args:
+#         time_series: Input time series array (shape: [time, height, width])
+#         qa: Quality assessment array
+#         dates: List of datetime objects for each time point
+#         num_harmonics: Number of harmonics to use in the fit
+#         max_iter: Maximum number of iterations for IRLS
+#         tol: Convergence tolerance for relative parameter change
+#         percentile: Percentile for convergence criterion
+#         min_param_threshold: Threshold for considering parameters significant
+#         callback: Optional callback function(iteration, relative_change)
+#         logger: Optional logger instance for tracking progress
+#         debug: Enable debug mode for additional plots and information
+    
+#     Returns:
+#         Tuple containing:
+#         - List of amplitude maps for each harmonic
+#         - List of phase maps for each harmonic
+#         - Offset map
+#         - Variance residual map
+#     """
+#     try:
+#         if logger:
+#             logger.info(f"Starting periodic function fitting with {num_harmonics} harmonics")
+        
+#         # Convert dates and compute normalized time
+#         times_datetime64 = np.array(dates, dtype='datetime64[D]')
+#         days_since_start = (times_datetime64 - times_datetime64[0]).astype(int)
+#         t_normalized = days_since_start / 365.25
+        
+#         # Setup design matrix
+#         harmonics = []
+#         for k in range(1, num_harmonics + 1):
+#             t_radians = 2 * np.pi * k * t_normalized
+#             harmonics.extend([np.cos(t_radians), np.sin(t_radians)])
+#         A = np.stack(harmonics + [np.ones_like(t_normalized)], axis=-1)
+        
+#         # Initialize parameters
+#         pixels = time_series.reshape(time_series.shape[0], -1)
+#         weights = qa.reshape(qa.shape[0], -1)
+       
+#        # Initialize delta
+#         delta = 1.345
+
+#         # Compute the pseudoinverse of the design matrix
+#         # A_pinv = np.linalg.pinv(A)  # Shape: (num_params, time)
+#         # # Initial least squares fit to estimate parameters
+#         # initial_params = np.dot(A_pinv, pixels).T  # Shape: (n_pixels, num_params)
+
+#         # Fill NaN with temporal mean for each pixel
+#         nan_mask = np.isnan(pixels)
+        
+#         # Compute mean along time axis, ignoring NaNs
+#         pixel_means = np.nanmean(pixels, axis=0)  # [pixels]
+#         # Fill NaNs with corresponding pixel means
+#         pixels_filled = np.where(nan_mask, 
+#                             np.tile(pixel_means, (pixels.shape[0], 1)),
+#                             pixels)
+        
+#         # Zero out weights where we had NaNs
+#         weights = np.where(nan_mask, 0, weights)
+        
+#         # Continue with original algorithm
+#         A_pinv = np.linalg.pinv(A)
+#         initial_params = np.dot(A_pinv, pixels_filled).T
+
+#         params = initial_params.copy()
+#         # Initialize parameters
+#         num_params = 2 * num_harmonics + 1
+
+#         # Calculate initial residuals
+#         initial_fitted_values = np.dot(A, params.T)
+#         initial_residuals = pixels - initial_fitted_values
+
+#         # Estimate initial sigma
+#         sigma_initial = np.std(initial_residuals, axis=0)
+#         sigma_initial[sigma_initial == 0] = np.finfo(float).eps  # Avoid division by zero
+
+#         # Set delta based on initial residuals and do not update it
+#         delta = 1.345 * sigma_initial
+#         delta[delta == 0] = np.finfo(float).eps  # Avoid zero delta
+
+#         epsilon = 1e-8
+        
+#         for iteration in range(max_iter):
+#             params_old = params.copy()
+
+#             # Broadcasting for weighted design matrix
+#             A_expanded = np.expand_dims(A, 2)
+#             weights_expanded = np.expand_dims(weights, 1)
+#             A_weighted = A_expanded * weights_expanded
+
+#             # Compute the normal equation components
+#             ATA = np.einsum('ijk,ilk->jlk', A_weighted, A_expanded)
+#             ATb = np.einsum('ijk,ik->jk', A_weighted, pixels)
+
+#             # Solve for parameters
+#             ATA_reshaped = ATA.transpose(2, 0, 1)
+#             ATb_reshaped = ATb.T
+
+            
+#             params = np.array([solve_params(ATA_reshaped[i], ATb_reshaped[i]) for i in range(ATA_reshaped.shape[0])])
+#             params = np.nan_to_num(params)  # Replace NaNs with zero
+
+#             # Calculate fitted values and residuals
+#             fitted_values = np.dot(A, params.T)  # Shape: (time, n_pixels)
+#             residuals = pixels - fitted_values
+
+#             # Estimate sigma (standard deviation of residuals)
+#             sigma_residuals = np.std(residuals, axis=0)
+#             sigma_residuals[sigma_residuals == 0] = np.finfo(float).eps  # Avoid division by zero
+
+#             # Update weights based on residuals using Huber loss
+#             residuals_abs = np.abs(residuals)
+#             delta = 1.345 * sigma_residuals  # Update delta based on residuals
+#             delta[delta == 0] = epsilon  # Avoid zero delta
+#             mask = residuals_abs <= delta
+#             weights_update = np.where(mask, 1, delta / (residuals_abs + epsilon))
+#             weights = weights * weights_update
+
+#             # Compute relative change, avoiding division by small numbers
+#             min_param_threshold = 1e-5  # Or another appropriate small value
+#             param_diff = np.abs(params - params_old)
+#             relative_change = param_diff / (np.maximum(np.abs(params_old), min_param_threshold))
+#             relative_change_flat = relative_change.flatten()
+
+#             if debug:
+#                 fig, ax = plt.subplots(1, 1, figsize=(6, 4))
+#                 _ = ax.hist(param_diff.flatten(), bins=100)
+#                 ax.spines['top'].set_visible(False)
+#                 ax.spines['right'].set_visible(False)
+#                 ax.grid(axis='y', linestyle='--', alpha=0.7)
+#                 ax.set_title(f"Params diff - Iteration {iteration + 1}")
+#                 plt.show()
+
+#             # Compute the desired percentile of relative change
+#             percentile_value = np.percentile(relative_change_flat, percentile)
+
+#             if callback:
+#                 callback(iteration, percentile_value)
+                
+#             if logger:
+#                 logger.debug(f"Iteration {iteration + 1}: relative change = {percentile_value:.6f}")
+            
+#             if percentile_value < tol:
+#                 if logger:
+#                     logger.info(f"Converged after {iteration + 1} iterations (relative change: {percentile_value:.6f})")
+#                 break
+#         else:
+#             if logger:
+#                 logger.warning(f"Maximum iterations ({max_iter}) reached without convergence")
+        
+#         # Extract results
+#         params_reshaped = params.reshape(time_series.shape[1], time_series.shape[2], -1).transpose(2, 0, 1)
+#         amplitude_maps = []
+#         phase_maps = []
+        
+#         for i in range(num_harmonics):
+#             A_params = params_reshaped[2 * i]
+#             B_params = params_reshaped[2 * i + 1]
+#             amplitude_map = np.sqrt(A_params ** 2 + B_params ** 2)
+#             phase_map = np.arctan2(B_params, A_params)
+            
+#             phase_adjusted = (phase_map - (2 * np.pi * (i + 1) * t_normalized[0])) % (2 * np.pi)
+#             phase_normalized = np.where(phase_adjusted > np.pi, phase_adjusted - 2 * np.pi, phase_adjusted)
+            
+#             amplitude_maps.append(amplitude_map)
+#             phase_maps.append(phase_normalized)
+            
+#         offset_map = params_reshaped[-1]
+
+#         # Var residual map reshaped to the tile shape
+#         var_residual = np.var(residuals, axis=0)
+#         var_residual_map = var_residual.reshape(time_series.shape[1], time_series.shape[2])
+            
+#         if logger:
+#             logger.info("Successfully completed periodic function fitting")
+#         return (*amplitude_maps, *phase_maps, offset_map, var_residual_map)
+        
+#     except Exception as e:
+#         if logger:
+#             logger.error(f"Error in periodic function fitting: {str(e)}")
+#         raise
 def fit_periodic_function_with_harmonics_robust(
     time_series: np.ndarray,
     qa: np.ndarray,
@@ -121,7 +319,7 @@ def fit_periodic_function_with_harmonics_robust(
     
     Args:
         time_series: Input time series array (shape: [time, height, width])
-        qa: Quality assessment array
+        qa: Quality assessment array for weighting
         dates: List of datetime objects for each time point
         num_harmonics: Number of harmonics to use in the fit
         max_iter: Maximum number of iterations for IRLS
@@ -129,11 +327,11 @@ def fit_periodic_function_with_harmonics_robust(
         percentile: Percentile for convergence criterion
         min_param_threshold: Threshold for considering parameters significant
         callback: Optional callback function(iteration, relative_change)
-        logger: Optional logger instance for tracking progress
-        debug: Enable debug mode for additional plots and information
+        logger: Optional logger instance
+        debug: Enable debug mode
     
     Returns:
-        Tuple containing:
+        Tuple containing (in order):
         - List of amplitude maps for each harmonic
         - List of phase maps for each harmonic
         - Offset map
@@ -142,117 +340,93 @@ def fit_periodic_function_with_harmonics_robust(
     try:
         if logger:
             logger.info(f"Starting periodic function fitting with {num_harmonics} harmonics")
+
+        # Reshape and handle NaNs
+        pixels = time_series.reshape(time_series.shape[0], -1)
+        weights = qa.reshape(qa.shape[0], -1)
+        nan_mask = np.isnan(pixels)
         
-        # Convert dates and compute normalized time
+        # Fill NaNs with temporal mean
+        pixel_means = np.nanmean(pixels, axis=0)
+        pixels_filled = np.where(nan_mask, 
+                               np.tile(pixel_means, (pixels.shape[0], 1)),
+                               pixels)
+        weights = np.where(nan_mask, 0, weights)
+
+        # Setup design matrix
         times_datetime64 = np.array(dates, dtype='datetime64[D]')
         days_since_start = (times_datetime64 - times_datetime64[0]).astype(int)
         t_normalized = days_since_start / 365.25
         
-        # Setup design matrix
         harmonics = []
         for k in range(1, num_harmonics + 1):
             t_radians = 2 * np.pi * k * t_normalized
             harmonics.extend([np.cos(t_radians), np.sin(t_radians)])
         A = np.stack(harmonics + [np.ones_like(t_normalized)], axis=-1)
-        
-        # Initialize parameters
-        pixels = time_series.reshape(time_series.shape[0], -1)
-        weights = qa.reshape(qa.shape[0], -1)
-       
-       # Initialize delta
-        delta = 1.345
 
-        # Compute the pseudoinverse of the design matrix
-        A_pinv = np.linalg.pinv(A)  # Shape: (num_params, time)
-        # Initial least squares fit to estimate parameters
-        initial_params = np.dot(A_pinv, pixels).T  # Shape: (n_pixels, num_params)
+        # Initial parameter estimation
+        A_pinv = np.linalg.pinv(A)
+        initial_params = np.dot(A_pinv, pixels_filled).T
         params = initial_params.copy()
-        # Initialize parameters
-        num_params = 2 * num_harmonics + 1
-
-        # Calculate initial residuals
+        
+        # Initial residuals for robust fitting
         initial_fitted_values = np.dot(A, params.T)
-        initial_residuals = pixels - initial_fitted_values
-
-        # Estimate initial sigma
+        initial_residuals = pixels_filled - initial_fitted_values
+        
+        # Initialize robust fitting parameters
         sigma_initial = np.std(initial_residuals, axis=0)
-        sigma_initial[sigma_initial == 0] = np.finfo(float).eps  # Avoid division by zero
-
-        # Set delta based on initial residuals and do not update it
+        sigma_initial[sigma_initial == 0] = np.finfo(float).eps
         delta = 1.345 * sigma_initial
-        delta[delta == 0] = np.finfo(float).eps  # Avoid zero delta
-
+        delta[delta == 0] = np.finfo(float).eps
         epsilon = 1e-8
         
+        # Iterative refinement
         for iteration in range(max_iter):
             params_old = params.copy()
 
-            # Broadcasting for weighted design matrix
+            # Weighted design matrix
             A_expanded = np.expand_dims(A, 2)
             weights_expanded = np.expand_dims(weights, 1)
             A_weighted = A_expanded * weights_expanded
 
-            # Compute the normal equation components
+            # Normal equations
             ATA = np.einsum('ijk,ilk->jlk', A_weighted, A_expanded)
-            ATb = np.einsum('ijk,ik->jk', A_weighted, pixels)
+            ATb = np.einsum('ijk,ik->jk', A_weighted, pixels_filled)
 
             # Solve for parameters
             ATA_reshaped = ATA.transpose(2, 0, 1)
             ATb_reshaped = ATb.T
+            params = np.array([solve_params(ATA_reshaped[i], ATb_reshaped[i]) 
+                             for i in range(ATA_reshaped.shape[0])])
+            params = np.nan_to_num(params)
 
-            
-            params = np.array([solve_params(ATA_reshaped[i], ATb_reshaped[i]) for i in range(ATA_reshaped.shape[0])])
-            params = np.nan_to_num(params)  # Replace NaNs with zero
-
-            # Calculate fitted values and residuals
-            fitted_values = np.dot(A, params.T)  # Shape: (time, n_pixels)
-            residuals = pixels - fitted_values
-
-            # Estimate sigma (standard deviation of residuals)
+            # Update weights using Huber loss
+            fitted_values = np.dot(A, params.T)
+            residuals = pixels_filled - fitted_values
             sigma_residuals = np.std(residuals, axis=0)
-            sigma_residuals[sigma_residuals == 0] = np.finfo(float).eps  # Avoid division by zero
-
-            # Update weights based on residuals using Huber loss
+            sigma_residuals[sigma_residuals == 0] = epsilon
+            
             residuals_abs = np.abs(residuals)
-            delta = 1.345 * sigma_residuals  # Update delta based on residuals
-            delta[delta == 0] = epsilon  # Avoid zero delta
+            delta = 1.345 * sigma_residuals
+            delta[delta == 0] = epsilon
             mask = residuals_abs <= delta
             weights_update = np.where(mask, 1, delta / (residuals_abs + epsilon))
             weights = weights * weights_update
 
-            # Compute relative change, avoiding division by small numbers
-            min_param_threshold = 1e-5  # Or another appropriate small value
+            # Check convergence
             param_diff = np.abs(params - params_old)
             relative_change = param_diff / (np.maximum(np.abs(params_old), min_param_threshold))
-            relative_change_flat = relative_change.flatten()
-
-            if debug:
-                fig, ax = plt.subplots(1, 1, figsize=(6, 4))
-                _ = ax.hist(param_diff.flatten(), bins=100)
-                ax.spines['top'].set_visible(False)
-                ax.spines['right'].set_visible(False)
-                ax.grid(axis='y', linestyle='--', alpha=0.7)
-                ax.set_title(f"Params diff - Iteration {iteration + 1}")
-                plt.show()
-
-            # Compute the desired percentile of relative change
-            percentile_value = np.percentile(relative_change_flat, percentile)
-
+            percentile_value = np.percentile(relative_change.flatten(), percentile)
+            
             if callback:
                 callback(iteration, percentile_value)
                 
-            if logger:
-                logger.debug(f"Iteration {iteration + 1}: relative change = {percentile_value:.6f}")
-            
             if percentile_value < tol:
                 if logger:
-                    logger.info(f"Converged after {iteration + 1} iterations (relative change: {percentile_value:.6f})")
+                    logger.info(f"Converged after {iteration + 1} iterations")
                 break
-        else:
-            if logger:
-                logger.warning(f"Maximum iterations ({max_iter}) reached without convergence")
         
-        # Extract results
+        # Extract and return results
         params_reshaped = params.reshape(time_series.shape[1], time_series.shape[2], -1).transpose(2, 0, 1)
         amplitude_maps = []
         phase_maps = []
@@ -270,19 +444,16 @@ def fit_periodic_function_with_harmonics_robust(
             phase_maps.append(phase_normalized)
             
         offset_map = params_reshaped[-1]
-
-        # Var residual map reshaped to the tile shape
         var_residual = np.var(residuals, axis=0)
         var_residual_map = var_residual.reshape(time_series.shape[1], time_series.shape[2])
             
-        if logger:
-            logger.info("Successfully completed periodic function fitting")
         return (*amplitude_maps, *phase_maps, offset_map, var_residual_map)
         
     except Exception as e:
         if logger:
             logger.error(f"Error in periodic function fitting: {str(e)}")
         raise
+
 
 def solve_params(ATA: np.ndarray, ATb: np.ndarray) -> np.ndarray:
     """ Solve linear equations with error handling for non-invertible cases. """
@@ -583,3 +754,40 @@ def to_reflectance(
         if logger:
             logger.error(f"Reflectance conversion failed: {str(e)}")
         raise
+
+def reconstruct_signal(amplitudes: List[np.ndarray], phases: List[np.ndarray], offset_map: np.ndarray, dates: List[datetime], pixel_coords: Tuple[int, int]) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Reconstructs the time series signal for a specific pixel using the fitted parameters.
+
+    Parameters:
+    - amplitudes: List[np.ndarray], list of amplitude maps for each harmonic.
+    - phases: List[np.ndarray], list of phase maps for each harmonic.
+    - offset_map: np.ndarray, constant offset of the fitted function.
+    - dates: List[datetime.datetime], dates corresponding to the time series data points.
+    - pixel_coords: Tuple[int, int], (x, y) coordinates of the pixel in the image.
+    
+    Returns:
+    - reconstructed_signal: np.ndarray, the reconstructed signal for the specified pixel.
+    - times_datetime64: np.ndarray, the dates corresponding to the time series data points.
+    """
+    # Convert dates to 'datetime64' and compute normalized time as fraction of year
+    times_datetime64 = np.array(dates, dtype='datetime64[D]')
+    # Create times_datetime64 with regular time step every week
+    times_datetime64 = np.arange(times_datetime64[0], times_datetime64[-1] + np.timedelta64(7, 'D'), np.timedelta64(7, 'D'))
+    start_date = times_datetime64[0]
+    days_since_start = (times_datetime64 - start_date).astype(int)
+    t_normalized = days_since_start / 365.25  # Normalize to fraction of year
+
+    # Initialize the signal with the offset
+    signal = offset_map[pixel_coords[0], pixel_coords[1]] * np.ones_like(t_normalized)
+
+    # Add harmonics to the signal
+    for i, (amp_map, phase_map) in enumerate(zip(amplitudes, phases)):
+        # Convert normalized time to radians for this harmonic
+        t_radians = 2 * np.pi * (i + 1) * t_normalized
+        amplitude = amp_map[pixel_coords[0], pixel_coords[1]]
+        phase = phase_map[pixel_coords[0], pixel_coords[1]]
+        
+        signal += amplitude * np.cos(t_radians - phase)
+
+    return signal, times_datetime64

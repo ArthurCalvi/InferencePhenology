@@ -1,0 +1,5 @@
+{
+  "num_tiles": 280,
+  "model_path": "/lustre/fswork/projects/rech/ego/uyr48jk/InferencePhenology/model/best_model_with_bdforet_no_resampled_weights_h2_y1_iter10_scaled01_featuresfromRFECV_nf10_f1_0.9601.pkl",
+  "output_dir": "/lustre/fswork/projects/rech/ego/uyr48jk/InferencePhenology/phenology_inference"
+}

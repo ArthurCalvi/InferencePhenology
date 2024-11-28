@@ -5,6 +5,8 @@ model/
 checkpoints/
 results/
 data/
+notebooks/
+src/
 
 # Large files by extension
 *.tif
@@ -12,6 +14,7 @@ data/
 
 # Images - but allow specific ones in figures/
 *.png
+*.npy
 !figures/README.png  # Uncomment if you want to keep specific PNG files
 !figures/*.png       # Uncomment to keep all PNGs in figures directory
 

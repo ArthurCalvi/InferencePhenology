@@ -70,7 +70,7 @@ def test_tile_inference():
     
     # Test parameters
     years = ["2021", "2022"]
-    tile_id = "EPSG2154_750000_6700000"
+    tile_id = "EPSG2154_450000_6800000"
     
     try:
         # Get mosaic paths and dates

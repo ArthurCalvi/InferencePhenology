@@ -1,0 +1,16 @@
+Configuration Summary:
+--------------------
+Mosaic directory: /lustre/fsn1/projects/rech/ego/uyr48jk/all_year_france/gpfsscratch/rech/ego/uof45xi/data/all_year/france
+DEM directory: /lustre/fsn1/projects/rech/ego/uyr48jk/all_year_france/gpfsscratch/rech/ego/uof45xi/data/all_year/france/dem/dem
+Output directory: /lustre/fswork/projects/rech/ego/uyr48jk/InferencePhenology/phenology_inference
+Model path: /lustre/fswork/projects/rech/ego/uyr48jk/InferencePhenology/model/best_model_with_bdforet_no_resampled_weights_h2_y1_iter10_scaled01_featuresfromRFECV_nf10_f1_0.9601.pkl
+Total tiles: 280
+Years: ['2021', '2022']
+Window size: 1024
+Harmonics: 2
+Max iterations: 1
+Workers per tile: 4
+
+SLURM Configuration:
+-------------------
+#SBATCH --array=0-279%70

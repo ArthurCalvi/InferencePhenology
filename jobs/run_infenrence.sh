@@ -1,14 +1,14 @@
 #!/bin/bash
 #SBATCH --job-name=phenology
-#SBATCH --nodes=100
+#SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
-#SBATCH --cpus-per-task=4            # 4 CPU cores per tile as requested
-#SBATCH --partition=cpu_p1           # Using cpu_p1 for longer jobs
+#SBATCH --cpus-per-task=8           # 4 CPU cores per tile as requested
+#SBATCH --partition=prepost          # Using cpu_p1 for longer jobs
 #SBATCH --hint=nomultithread
 #SBATCH --time=20:00:00             # 20 hours max
 #SBATCH --output=/linkhome/rech/gennjv01/uyr48jk/work/slurm_logs/%x_%A_%a.out
 #SBATCH --error=/linkhome/rech/gennjv01/uyr48jk/work/slurm_logs/%x_%A_%a.err
-#SBATCH --array=0-280%100            # Will be adjusted based on number of tiles
+#SBATCH --array=0-280%70            # Will be adjusted based on number of tiles
 
 echo '### Running Phenology Inference - Task ${SLURM_ARRAY_TASK_ID} ###'
 set -x
