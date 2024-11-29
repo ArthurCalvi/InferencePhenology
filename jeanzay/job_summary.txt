@@ -13,4 +13,4 @@ Workers per tile: 4
 
 SLURM Configuration:
 -------------------
-#SBATCH --array=0-279%70
+#SBATCH --array=0-279%10
