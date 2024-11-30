@@ -92,6 +92,11 @@ class RasterComparison:
         self.window_size = window_size
         self.max_workers = max_workers or os.cpu_count()
         self.logger = logger or self._setup_logger()
+
+        # Initialize class mappings
+        self.classes = sorted(set(self.map1_classes.values()).union(set(self.map2_classes.values())) - {'nodata'})
+        self.class_name_to_int = {class_name: i for i, class_name in enumerate(self.classes)}
+        self.int_to_class_name = {i: class_name for class_name, i in self.class_name_to_int.items()}
         
         self._validate_inputs()
         self.common_extent = self._compute_common_extent()
@@ -232,9 +237,9 @@ class RasterComparison:
         """
         try:
             with rasterio.open(self.raster1_path) as src1, \
-                 rasterio.open(self.raster2_path) as src2, \
-                 rasterio.open(self.forest_mask_path) as src_mask, \
-                 rasterio.open(self.eco_region_path) as src_eco:
+                rasterio.open(self.raster2_path) as src2, \
+                rasterio.open(self.forest_mask_path) as src_mask, \
+                rasterio.open(self.eco_region_path) as src_eco:
                 
                 # Get window bounds
                 window_bounds = windows.bounds(window, self.common_extent.transform)
@@ -248,13 +253,13 @@ class RasterComparison:
                 
                 # Convert to integer coordinates
                 window1 = Window(int(window1.col_off), int(window1.row_off), 
-                               int(window1.width), int(window1.height))
+                            int(window1.width), int(window1.height))
                 window2 = Window(int(window2.col_off), int(window2.row_off), 
-                               int(window2.width), int(window2.height))
+                            int(window2.width), int(window2.height))
                 window_mask = Window(int(window_mask.col_off), int(window_mask.row_off),
-                                   int(window_mask.width), int(window_mask.height))
+                                int(window_mask.width), int(window_mask.height))
                 window_eco = Window(int(window_eco.col_off), int(window_eco.row_off),
-                                  int(window_eco.width), int(window_eco.height))
+                                int(window_eco.width), int(window_eco.height))
                 
                 # Read data and resample to common shape
                 target_shape = (window.height, window.width)
@@ -264,9 +269,9 @@ class RasterComparison:
                 forest_mask = src_mask.read(1, window=window_mask, out_shape=target_shape)
                 eco_region = src_eco.read(1, window=window_eco, out_shape=target_shape)
                 
-                # Apply class mappings
-                data1_mapped = np.vectorize(self.map1_classes.get)(data1)
-                data2_mapped = np.vectorize(self.map2_classes.get)(data2)
+                # Apply class mappings with default 'nodata' for unmapped values
+                data1_mapped = np.vectorize(lambda x: self.map1_classes.get(x, 'nodata'))(data1)
+                data2_mapped = np.vectorize(lambda x: self.map2_classes.get(x, 'nodata'))(data2)
                 
                 # Consider only forest pixels
                 forest_pixels = forest_mask == 1
@@ -275,7 +280,7 @@ class RasterComparison:
                 # Early return if no forest pixels
                 if total_forest == 0:
                     self.logger.info("No forest pixels in window, returning empty metrics")
-                    n_classes = len(set(self.map1_classes.values()) - {'nodata'})
+                    n_classes = len(set(self.map1_classes.values()).union(set(self.map2_classes.values())) - {'nodata'})
                     return WindowMetrics(
                         confusion_matrix=np.zeros((n_classes, n_classes), dtype=np.int32),
                         raster1_coverage=0.0,
@@ -284,17 +289,32 @@ class RasterComparison:
                         eco_region_metrics={}
                     )
 
-                # Create validity mask
-                valid_pixels = (data1_mapped != 'nodata') & (data2_mapped != 'nodata') & forest_pixels
+                # Map class names to integer labels
+                data1_labels = np.vectorize(lambda x: self.class_name_to_int.get(x, -1))(data1_mapped)
+                data2_labels = np.vectorize(lambda x: self.class_name_to_int.get(x, -1))(data2_mapped)
+            
+                # Valid pixels are those where both rasters have valid class labels and are in forest pixels
+                valid_pixels = (data1_labels != -1) & (data2_labels != -1) & forest_pixels
 
                 # Compute global metrics
-                raster1_coverage = np.sum((data1_mapped != 'nodata') & forest_pixels) / total_forest
-                raster2_coverage = np.sum((data2_mapped != 'nodata') & forest_pixels) / total_forest
-                classes = sorted(set(self.map1_classes.values()) - {'nodata'})
-                
-                y_true = data2_mapped[valid_pixels]
-                y_pred = data1_mapped[valid_pixels]
-                conf_matrix = confusion_matrix(y_true, y_pred, labels=classes)
+                raster1_coverage = np.sum((data1_labels != -1) & forest_pixels) / total_forest
+                raster2_coverage = np.sum((data2_labels != -1) & forest_pixels) / total_forest
+
+                # If no valid pixels, return empty metrics
+                if not np.any(valid_pixels):
+                    self.logger.info("No valid pixels in window, returning empty metrics")
+                    n_classes = len(self.classes)
+                    return WindowMetrics(
+                        confusion_matrix=np.zeros((n_classes, n_classes), dtype=np.int32),
+                        raster1_coverage=raster1_coverage,
+                        raster2_coverage=raster2_coverage,
+                        forest_pixels=total_forest,
+                        eco_region_metrics={}
+                    )
+
+                y_true = data2_labels[valid_pixels]
+                y_pred = data1_labels[valid_pixels]
+                conf_matrix = confusion_matrix(y_true, y_pred, labels=list(range(len(self.classes))))
 
                 # Process metrics for each eco-region
                 eco_region_metrics = {}
@@ -312,13 +332,13 @@ class RasterComparison:
                             continue
                         
                         # Compute coverage metrics for eco-region
-                        eco_r1_coverage = np.sum((data1_mapped != 'nodata') & forest_pixels & eco_mask) / eco_forest_pixels
-                        eco_r2_coverage = np.sum((data2_mapped != 'nodata') & forest_pixels & eco_mask) / eco_forest_pixels
+                        eco_r1_coverage = np.sum((data1_labels != -1) & forest_pixels & eco_mask) / eco_forest_pixels
+                        eco_r2_coverage = np.sum((data2_labels != -1) & forest_pixels & eco_mask) / eco_forest_pixels
                         
                         # Compute confusion matrix for eco-region
-                        eco_y_true = data2_mapped[eco_valid_pixels]
-                        eco_y_pred = data1_mapped[eco_valid_pixels]
-                        eco_conf_matrix = confusion_matrix(eco_y_true, eco_y_pred, labels=classes)
+                        eco_y_true = data2_labels[eco_valid_pixels]
+                        eco_y_pred = data1_labels[eco_valid_pixels]
+                        eco_conf_matrix = confusion_matrix(eco_y_true, eco_y_pred, labels=list(range(len(self.classes))))
                         
                         eco_region_metrics[eco_id] = WindowMetrics(
                             confusion_matrix=eco_conf_matrix,
@@ -341,6 +361,7 @@ class RasterComparison:
             self.logger.exception("Full traceback:")
             return None
 
+
     def compute_metrics(self) -> Dict:
         """
         Compute agreement metrics and coverage statistics for global and eco-region specific results.
@@ -352,8 +373,11 @@ class RasterComparison:
         self.logger.info("Starting metrics computation...")
         
         # Initialize global metrics
-        n_classes = len(set(self.map1_classes.values()) - {'nodata'})
+        # n_classes = len(set(self.map1_classes.values()) - {'nodata'})
+        # global_cm = np.zeros((n_classes, n_classes))
+        n_classes = len(self.classes)
         global_cm = np.zeros((n_classes, n_classes))
+
         total_forest_pixels = 0
         weighted_r1_coverage = 0.0
         weighted_r2_coverage = 0.0
