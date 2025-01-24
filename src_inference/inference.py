@@ -94,6 +94,7 @@ class WindowInference:
         model: Any = None,
         num_harmonics: int = 2,
         max_iter: int = 1,
+        required_features: Optional[List[str]] = None,
         logger: Optional[logging.Logger] = None
     ) -> None:
         """
@@ -109,6 +110,7 @@ class WindowInference:
         self.band_data = band_data
         self.num_harmonics = num_harmonics
         self.max_iter = max_iter
+        self.required_features = required_features or self.REQUIRED_FEATURES
         self.logger = logger or logging.getLogger(__name__)
         
         # Load model if path provided
@@ -123,19 +125,6 @@ class WindowInference:
         if self.max_iter < 1:
             raise ValueError("max_iter must be positive")
             
-    # def _get_quality_weights(self) -> np.ndarray:
-    #     """
-    #     Get quality weights for feature computation.
-        
-    #     Returns:
-    #         Array of quality weights (1 for good quality, 0 for bad quality)
-    #     """
-    #     if self.band_data.cloud_mask is not None:
-    #         self.logger.info("Using provided cloud mask as quality weights")
-    #         return self.band_data.cloud_mask
-    #     else:
-    #         self.logger.info("No cloud mask provided, using default weights of 1.0")
-    #         return np.ones_like(self.band_data.b2)
     def _get_quality_weights(self) -> np.ndarray:
         """
         Get quality weights for feature computation.
@@ -296,7 +285,7 @@ class WindowInference:
             
             # Create DataFrame with required features
             df = pd.DataFrame(feature_data)
-            df = df[self.REQUIRED_FEATURES]  # Select only required features
+            df = df[self.required_features]  # Select only required features
             df = df.fillna(0)  # Handle any missing values
             
             # Run model inference
@@ -332,6 +321,9 @@ class TileInference:
         num_harmonics: int = 2,
         max_iter: int = 1,
         max_workers: Optional[int] = None,
+        bands_order_raster: List[int] = [1, 3, 4, 9, 10],
+        extra_filename: str = '',
+        required_features: Optional[List[str]] = None,
         logger: Optional[logging.Logger] = None
     ) -> None:
         """
@@ -349,6 +341,8 @@ class TileInference:
             num_harmonics: Number of harmonics for periodic function fitting
             max_iter: Maximum iterations for harmonic fitting
             max_workers: Maximum number of parallel workers
+            bands_order_raster: List of bands order in the raster file
+            extra_filename: Extra filename to add to the output file
             logger: Optional logger instance
         """
         # Validate inputs
@@ -370,7 +364,9 @@ class TileInference:
         self.weights_ = '0'
         self.max_workers = min(os.cpu_count(), 4) if max_workers is None else max_workers
         self.logger = logger or logging.getLogger(__name__)
-        
+        self.bands_order_raster = bands_order_raster
+        self.extra_filename = extra_filename
+        self.required_features = required_features
         # Create output directory
         self.output_dir.mkdir(parents=True, exist_ok=True)
         
@@ -432,7 +428,7 @@ class TileInference:
             for t, mosaic_path in enumerate(self.mosaic_paths):
                 with rasterio.open(mosaic_path) as src:
                     # Read bands 1,3,4,9,10 (B2,B4,B8,B11,B12)
-                    data = src.read([1,3,4,9,10], window=window)
+                    data = src.read(self.bands_order_raster, window=window)
                     b2[t] = data[0] / 10000.0
                     b4[t] = data[1] / 10000.0
                     b8[t] = data[2] / 10000.0
@@ -462,7 +458,9 @@ class TileInference:
                 band_data=band_data,
                 model=self.model,
                 num_harmonics=self.num_harmonics,
-                max_iter=self.max_iter
+                max_iter=self.max_iter, 
+                required_features=self.required_features,
+                logger=self.logger
             )
             
             return window_inference.run_inference()
@@ -484,7 +482,7 @@ class TileInference:
             )
             
             # Prepare output file
-            output_path = self.output_dir / f"prob_map_tile_H{self.num_harmonics}_W{self.weights_}_IRLS{self.max_iter}_{self.tile_id}.tif"
+            output_path = self.output_dir / f"prob_map_tile_H{self.num_harmonics}_W{self.weights_}_IRLS{self.max_iter}_e{self.extra_filename}_{self.tile_id}.tif"
             profile = self.profile.copy()
             #add compression
             profile.update({

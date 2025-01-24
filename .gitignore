@@ -7,6 +7,7 @@ results/
 data/
 notebooks/
 src/
+qgis/
 
 # Large files by extension
 *.tif

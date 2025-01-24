@@ -1,0 +1,30 @@
+data_dir: /Users/arthurcalvi/Data/species/mosaics
+satellite_default:
+  resolution: 10
+  tile_size: 10240
+  dtype: UInt16
+  composite_method: MEDIAN
+  aoi:
+    spatial:
+      left: 12550
+      right: 1118000
+      bottom: 6050000
+      top: 7163000
+      epsg: 2154
+    temporal:
+      start_date: 2023-01-01
+      end_date: 2023-01-15
+    country: France
+  gee:
+    ee_project_id: phdforest
+    max_tile_size: 8
+s2:
+  selected_bands:
+    - B2
+    - B4
+    - B8
+    - B11
+    - B12
+    - MSK_CLDPRB
+  cloudless_portion: 0  
+  cloud_prb_threshold: 100  

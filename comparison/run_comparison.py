@@ -1,55 +1,61 @@
-# run_comparison_metrics.py
-from __future__ import annotations
+#!/usr/bin/env python3
+"""
+Comparison script between MyInference and DLT, and MyInference and BDForet.
+Optimized for running on JeanZay supercomputer.
+"""
 
+import os
+import sys
 import argparse
 import json
 import logging
 from datetime import datetime
 from pathlib import Path
 import numpy as np
-from tqdm import tqdm
 import pandas as pd
 from typing import Dict, Any
+from tqdm import tqdm
 
 from compare_two_rasters import RasterComparison
 
+def parse_args():
+    """Parse command line arguments."""
+    parser = argparse.ArgumentParser(description='Compare phenology classification maps')
+    parser.add_argument('--output-dir', type=Path, required=True,
+                       help='Directory to save outputs')
+    parser.add_argument('--window-size', type=int, default=5120,
+                       help='Size of processing windows')
+    parser.add_argument('--max-workers', type=int, default=4,
+                       help='Number of worker processes')
+    return parser.parse_args()
+
 def setup_logger(output_dir: Path) -> logging.Logger:
-    """
-    Set up logging configuration.
-    
-    Args:
-        output_dir: Directory to save log file
-        
-    Returns:
-        Logger instance
-    """
+    """Set up logging configuration."""
     logger = logging.getLogger('comparison_metrics')
     logger.setLevel(logging.INFO)
     
-    # Create formatters and handlers
-    console_handler = logging.StreamHandler()
-    console_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-    console_handler.setFormatter(console_formatter)
+    os.makedirs(output_dir, exist_ok=True)
     
+    # Create handlers
+    console_handler = logging.StreamHandler()
     file_handler = logging.FileHandler(output_dir / 'comparison_metrics.log')
+    
+    # Create formatters
+    console_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
     file_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    
+    # Set formatters
+    console_handler.setFormatter(console_formatter)
     file_handler.setFormatter(file_formatter)
     
-    # Add handlers to the logger
+    # Add handlers
     logger.addHandler(console_handler)
     logger.addHandler(file_handler)
     
     return logger
 
 def save_metrics_json(metrics: Dict[str, Any], output_path: Path) -> None:
-    """
-    Save metrics dictionary to JSON file.
-    
-    Args:
-        metrics: Dictionary containing metrics
-        output_path: Path to save JSON file
-    """
-    # Convert numpy arrays to lists for JSON serialization
+    """Save metrics dictionary to JSON file."""
     def convert_numpy(obj):
         if isinstance(obj, np.ndarray):
             return obj.tolist()
@@ -64,14 +70,8 @@ def save_metrics_json(metrics: Dict[str, Any], output_path: Path) -> None:
     with open(output_path, 'w') as f:
         json.dump(metrics_json, f, indent=2)
 
-def save_metrics_csv(metrics: Dict[str, Any], output_dir: Path) -> None:
-    """
-    Save metrics to CSV files for easy analysis.
-    
-    Args:
-        metrics: Dictionary containing metrics
-        output_dir: Directory to save CSV files
-    """
+def save_metrics_csv(metrics: Dict[str, Any], output_dir: Path, prefix: str = "") -> None:
+    """Save metrics to CSV files for easy analysis."""
     # Global metrics
     global_data = metrics['global']
     global_df = pd.DataFrame({
@@ -83,7 +83,7 @@ def save_metrics_csv(metrics: Dict[str, Any], output_dir: Path) -> None:
             global_data['total_forest_pixels']
         ]
     })
-    global_df.to_csv(output_dir / 'global_metrics.csv', index=False)
+    global_df.to_csv(output_dir / f'{prefix}global_metrics.csv', index=False)
     
     # Confusion matrix
     conf_matrix_df = pd.DataFrame(
@@ -91,7 +91,7 @@ def save_metrics_csv(metrics: Dict[str, Any], output_dir: Path) -> None:
         columns=global_data['class_names'],
         index=global_data['class_names']
     )
-    conf_matrix_df.to_csv(output_dir / 'confusion_matrix.csv')
+    conf_matrix_df.to_csv(output_dir / f'{prefix}confusion_matrix.csv')
     
     # Eco-region metrics
     eco_metrics = []
@@ -105,39 +105,28 @@ def save_metrics_csv(metrics: Dict[str, Any], output_dir: Path) -> None:
         })
     
     eco_df = pd.DataFrame(eco_metrics)
-    eco_df.to_csv(output_dir / 'eco_region_metrics.csv', index=False)
+    eco_df.to_csv(output_dir / f'{prefix}eco_region_metrics.csv', index=False)
 
 def main():
-    parser = argparse.ArgumentParser(description='Compute comparison metrics between two raster datasets')
+    args = parse_args()
     
-    parser.add_argument('--bdforet-path', type=Path, required=True,
-                       help='Path to BDForet raster')
-    parser.add_argument('--dlt-path', type=Path, required=True,
-                       help='Path to DLT raster')
-    parser.add_argument('--forest-mask-path', type=Path, required=True,
-                       help='Path to forest mask raster')
-    parser.add_argument('--eco-region-path', type=Path, required=True,
-                       help='Path to eco-region raster')
-    parser.add_argument('--output-dir', type=Path, required=True,
-                       help='Output directory for results')
-    parser.add_argument('--window-size', type=int, default=10240,
-                       help='Size of processing windows (default: 10240)')
-    parser.add_argument('--max-workers', type=int, default=None,
-                       help='Maximum number of parallel workers')
-    
-    args = parser.parse_args()
-    
-    # Create output directory with timestamp
-    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    output_dir = args.output_dir / f'comparison_results_{timestamp}'
-    output_dir.mkdir(parents=True, exist_ok=True)
-    
+    # Setup paths
+    dlt_path = Path("/linkhome/rech/gennjv01/uyr48jk/work/InferencePhenology/data/DLT_2018_010m_fr_03035_v020/DLT_Dominant_Leaf_Type_France.tif")
+    bdforet_path = Path("/linkhome/rech/gennjv01/uyr48jk/work/InferencePhenology/data/bdforet_10_FF1_FF2_EN_year_raster.tif")
+    myinference_path = Path("/linkhome/rech/gennjv01/uyr48jk/work/InferencePhenology/data/classification_map.tif")
+    forest_mask_path = Path("/linkhome/rech/gennjv01/uyr48jk/work/InferencePhenology/data/mask_forest.tif")
+    eco_region_path = Path("/linkhome/rech/gennjv01/uyr48jk/work/InferencePhenology/data/greco.tif")
+
     # Setup logging
-    logger = setup_logger(output_dir)
-    logger.info(f"Starting comparison metrics computation")
-    logger.info(f"Output directory: {output_dir}")
+    logger = setup_logger(args.output_dir)
+    logger.info("Starting comparison metrics computation")
     
     # Class mappings
+    myinference_classes = {
+        1: 'deciduous',
+        2: 'evergreen'
+    }
+    
     bdforet_classes = {
         1: 'deciduous',
         2: 'evergreen',
@@ -164,55 +153,60 @@ def main():
         11: 'Vosges'
     }
     
-    try:
-        # Initialize comparison object
-        comparison = RasterComparison(
-            raster1_path=args.bdforet_path,
-            raster2_path=args.dlt_path,
-            forest_mask_path=args.forest_mask_path,
-            eco_region_path=args.eco_region_path,
-            map1_classes=bdforet_classes,
-            map2_classes=dlt_classes,
-            eco_region_classes=eco_region_classes,
-            window_size=args.window_size,
-            max_workers=args.max_workers,
-            logger=logger
-        )
-        
-        logger.info("Computing metrics...")
-        metrics = comparison.compute_metrics()
-        
-        # Save results
-        logger.info("Saving results...")
-        
-        # Save as JSON
-        json_path = output_dir / 'metrics.json'
-        save_metrics_json(metrics, json_path)
-        logger.info(f"Saved metrics to {json_path}")
-        
-        # Save as CSV
-        save_metrics_csv(metrics, output_dir)
-        logger.info(f"Saved detailed metrics as CSV files in {output_dir}")
-        
-        # Log summary statistics
-        logger.info("\nSummary Statistics:")
-        logger.info(f"Overall Agreement: {metrics['global']['overall_agreement']:.4f}")
-        logger.info(f"Total Forest Pixels: {metrics['global']['total_forest_pixels']:,}")
-        logger.info(f"BDForet Coverage: {metrics['global']['raster1_coverage']:.4f}")
-        logger.info(f"DLT Coverage: {metrics['global']['raster2_coverage']:.4f}")
-        
-        logger.info("\nEco-region Statistics:")
-        for eco_id, eco_data in metrics['eco_regions'].items():
-            logger.info(f"\n{eco_data['region_name']}:")
-            logger.info(f"  Agreement: {eco_data['overall_agreement']:.4f}")
-            logger.info(f"  Forest Pixels: {eco_data['forest_pixels']:,}")
-        
-        logger.info("\nComparison metrics computation completed successfully")
-        
-    except Exception as e:
-        logger.error(f"Error during computation: {str(e)}")
-        logger.exception("Full traceback:")
-        raise
+    # Comparison configurations
+    comparisons = [
+        {
+            'raster1_path': myinference_path,
+            'raster2_path': dlt_path,
+            'map1_classes': myinference_classes,
+            'map2_classes': dlt_classes,
+            'prefix': 'MyInference_vs_DLT_'
+        },
+        {
+            'raster1_path': myinference_path,
+            'raster2_path': bdforet_path,
+            'map1_classes': myinference_classes,
+            'map2_classes': bdforet_classes,
+            'prefix': 'MyInference_vs_BDForet_'
+        }
+    ]
+    
+    for comp in comparisons:
+        try:
+            logger.info(f"\nStarting comparison: {comp['prefix'].strip('_')}")
+            comparison = RasterComparison(
+                raster1_path=comp['raster1_path'],
+                raster2_path=comp['raster2_path'],
+                forest_mask_path=forest_mask_path,
+                eco_region_path=eco_region_path,
+                map1_classes=comp['map1_classes'],
+                map2_classes=comp['map2_classes'],
+                eco_region_classes=eco_region_classes,
+                window_size=args.window_size,
+                max_workers=args.max_workers,
+                logger=logger
+            )
+            
+            logger.info("Computing metrics...")
+            metrics = comparison.compute_metrics()
+            
+            # Save results
+            logger.info("Saving results...")
+            json_path = args.output_dir / f'{comp["prefix"]}metrics.json'
+            save_metrics_json(metrics, json_path)
+            save_metrics_csv(metrics, args.output_dir, prefix=comp['prefix'])
+            
+            # Log summary
+            logger.info("\nSummary Statistics:")
+            logger.info(f"Overall Agreement: {metrics['global']['overall_agreement']:.4f}")
+            logger.info(f"Total Forest Pixels: {metrics['global']['total_forest_pixels']:,}")
+            logger.info(f"Raster1 Coverage: {metrics['global']['raster1_coverage']:.4f}")
+            logger.info(f"Raster2 Coverage: {metrics['global']['raster2_coverage']:.4f}")
+            
+        except Exception as e:
+            logger.error(f"Error during computation for {comp['prefix'].strip('_')}: {str(e)}")
+            logger.exception("Full traceback:")
+            continue
 
 if __name__ == '__main__':
     main()
